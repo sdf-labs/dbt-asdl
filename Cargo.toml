@@ -2,5 +2,17 @@
 name = "dbt-asdl"
 version = "0.1.0"
 edition = "2024"
+authors = ["Bo Lin <bo@dreamsphere.org>"]
+description = "ASDL parser and code generator for SQL-like AST definitions."
+license = "Apache-2.0"
+repository = "https://github.com/sdf-labs/dbt-asdl"
+readme = "README.md"
+exclude = ["src/snapshots/"]
 
 [dependencies]
+
+[dev-dependencies]
+insta = "1.49.0"
+
+[lints.rust]
+missing_docs = "warn"
