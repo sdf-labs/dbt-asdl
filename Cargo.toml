@@ -2,6 +2,7 @@
 name = "dbt-asdl"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.96"
 authors = ["Bo Lin <bo@dreamsphere.org>"]
 description = "ASDL parser and code generator for SQL-like AST definitions."
 license = "Apache-2.0"
