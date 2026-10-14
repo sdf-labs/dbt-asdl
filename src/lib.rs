@@ -5,7 +5,7 @@
 //!
 //! # Examples
 //!
-//! Call [`rust::generate_trees`] from a Cargo build script (`build.rs`):
+//! Call [`rust::generate_trees`] or [`rust::generate_flat`] from a Cargo build script (`build.rs`):
 //!
 //! ```no_run
 //! use std::env;
@@ -17,16 +17,20 @@
 //!
 //! dbt_asdl::rust::generate_trees(&asdl_path, out_dir.join("gen.rs"))
 //!     .expect("failed to generate Rust AST from sql.asdl");
+//!
+//! dbt_asdl::rust::generate_flat(&asdl_path, out_dir.join("gen_flat.rs"))
+//!     .expect("failed to generate flat Rust AST from sql.asdl");
 //! ```
-
 pub(crate) mod asdl;
+pub(crate) mod flat;
 /// Rust AST code generation from ASDL specifications.
 pub mod rust;
 
 #[cfg(test)]
 mod tests {
     use crate::asdl::*;
-    use crate::rust::{CodegenError, generate, generate_trees};
+    use crate::flat::{fnv1a64, generate_flat_from_module};
+    use crate::rust::{CodegenError, generate, generate_flat, generate_trees};
 
     const MINI_SQL_ASDL: &str = r#"
 -- Miniature SQL ASDL specification for testing
@@ -203,6 +207,57 @@ module Edge {
             CodegenError(
                 "generated read-API name 'IdentList' collides with an existing name".to_string()
             )
+        );
+    }
+
+    #[test]
+    fn generates_mini_sql_flat() {
+        let flat_spec = format!("{MINI_SQL_ASDL}\n")
+            .replace(
+                "  when_then = (expr when, expr then)\n",
+                "  @stable\n  when_then = (expr when, expr then, bin_op? op)\n",
+            )
+            .replace(
+                "       attributes (span span)\n}",
+                "       attributes (span span)\n\n  file = (expr* exprs, span* spans)\n}",
+            );
+        let tmp_dir =
+            std::env::temp_dir().join(format!("dbt_asdl_flat_test_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+        let spec_path = tmp_dir.join("mini_sql.asdl");
+        std::fs::write(&spec_path, &flat_spec).unwrap();
+
+        let paths = generate_flat(&spec_path, tmp_dir.join("gen_flat.rs")).unwrap();
+        assert_eq!(paths.len(), 2);
+
+        let flat = std::fs::read_to_string(tmp_dir.join("gen_flat.rs")).unwrap();
+        let convert = std::fs::read_to_string(tmp_dir.join("gen_convert.rs")).unwrap();
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+
+        insta::assert_snapshot!("mini_sql_flat", flat);
+        insta::assert_snapshot!("mini_sql_convert", convert);
+    }
+
+    #[test]
+    fn validates_flat_restrictions() {
+        let scalar_seq = parse_str("module M { p = (int* x) file = (p* ps) }").unwrap();
+        assert_eq!(
+            generate_flat_from_module(&scalar_seq, "m.asdl", fnv1a64(b"")).unwrap_err(),
+            CodegenError("p.x: sequences of scalars are unsupported".to_string())
+        );
+
+        let simple_sum_seq =
+            parse_str("module M { op = Add | Sub p = (op* ops) file = (p* ps) }").unwrap();
+        assert_eq!(
+            generate_flat_from_module(&simple_sum_seq, "m.asdl", fnv1a64(b"")).unwrap_err(),
+            CodegenError("p.ops: sequences of simple sums are unsupported".to_string())
+        );
+
+        let missing_file = parse_str("module M { p = (int x) }").unwrap();
+        assert_eq!(
+            generate_flat_from_module(&missing_file, "m.asdl", fnv1a64(b"")).unwrap_err(),
+            CodegenError("flat layout requires a 'file' root type".to_string())
         );
     }
 }

@@ -1885,3 +1885,5 @@ pub fn generate_trees(
 
     Ok(written)
 }
+
+pub use crate::flat::generate_flat;

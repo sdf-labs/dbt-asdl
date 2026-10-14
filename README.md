@@ -14,6 +14,11 @@ The Rust backend (`dbt_asdl::rust::generate_trees`) writes five source files fro
 - `<stem>_views.rs`: the read-only view API over both tree representations.
 - `<stem>_sexpr.rs`: the canonical S-expression writer implementations.
 
+
+The flat Rust backend (`dbt_asdl::rust::generate_flat`) writes two source files for a stable `#[repr(C)]` ABI across shared library boundaries:
+
+- `<dst>`: `#[repr(C)]` record structs, typed node reference newtypes, constructor tag enums, `TreeBuilder`, `@stable` typed projections, layout freeze dump, and schema descriptor tables.
+- `gen_convert.rs`: functions that convert an arena or owned AST (through the read-only view API) into the flat boundary representation.
 ## Usage in `build.rs`
 
 1. Add `dbt-asdl` to `[build-dependencies]` in `Cargo.toml`:
