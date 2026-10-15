@@ -416,13 +416,13 @@ fn emit_ref_newtypes(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<Str
         w.push(format!("impl {}Ref {{", info.rust));
         w.push("    /// The None of an optional reference.".to_string());
         w.push(format!(
-            "    pub const NONE: Self = {}Ref(crate::NONE_U32);",
+            "    pub const NONE: Self = {}Ref(NONE_U32);",
             info.rust
         ));
         w.push(String::new());
         w.push("    /// Whether this is the None sentinel.".to_string());
         w.push("    pub fn is_none(self) -> bool {".to_string());
-        w.push("        self.0 == crate::NONE_U32".to_string());
+        w.push("        self.0 == NONE_U32".to_string());
         w.push("    }".to_string());
         w.push("}".to_string());
     }
@@ -669,7 +669,7 @@ fn emit_builder(
                         info.rust
                     ));
                     w.push("            _pad: 0,".to_string());
-                    w.push("            payload: crate::NONE_U32,".to_string());
+                    w.push("            payload: NONE_U32,".to_string());
                     w.push("        });".to_string());
                     w.push(format!("        {}Ref(i)", info.rust));
                     w.push("    }".to_string());
@@ -713,7 +713,7 @@ fn emit_builder(
     }
     w.push("        let sections = Box::into_raw(sections.into_boxed_slice());".to_string());
     w.push("        let tree = Box::new(SqlTree {".to_string());
-    w.push("            abi_version: crate::ABI_VERSION,".to_string());
+    w.push("            abi_version: ABI_VERSION,".to_string());
     w.push("            schema_hash: SCHEMA_HASH,".to_string());
     w.push("            release,".to_string());
     w.push("            schema: &SCHEMA,".to_string());
@@ -972,7 +972,7 @@ fn emit_schema(
     w.push("/// The schema of the sql.asdl this build was generated from.".to_string());
     w.push("#[cfg(feature = \"builder\")]".to_string());
     w.push("pub static SCHEMA: SqlSchema = SqlSchema {".to_string());
-    w.push("    abi_version: crate::ABI_VERSION,".to_string());
+    w.push("    abi_version: ABI_VERSION,".to_string());
     w.push("    schema_hash: SCHEMA_HASH,".to_string());
     w.push("    types: TYPES.as_ptr(),".to_string());
     w.push("    type_count: TYPES.len() as u32,".to_string());
@@ -1018,7 +1018,7 @@ fn emit_stable(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
         let r = &info.rust;
         match info.kind {
             InfoKind::Product => {
-                w.push("impl<'t> crate::Node<'t> {".to_string());
+                w.push("impl<'t> Node<'t> {".to_string());
                 w.push(format!(
                     "    /// This node as the @stable `{}` record, when it IS",
                     info.name
@@ -1064,10 +1064,10 @@ fn emit_stable(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
                 w.push("/// frozen layout.".to_string());
                 w.push("#[derive(Clone, Copy)]".to_string());
                 w.push(format!("pub struct Stable{r}<'t> {{"));
-                w.push("    node: crate::Node<'t>,".to_string());
+                w.push("    node: Node<'t>,".to_string());
                 w.push("}".to_string());
                 w.push(String::new());
-                w.push("impl<'t> crate::Node<'t> {".to_string());
+                w.push("impl<'t> Node<'t> {".to_string());
                 w.push(format!(
                     "    /// This node as a @stable `{}`, when it IS one.",
                     info.name
@@ -1091,7 +1091,7 @@ fn emit_stable(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
                 w.push(String::new());
                 w.push(format!("impl<'t> Stable{r}<'t> {{"));
                 w.push("    /// The generic cursor, for ports and introspection.".to_string());
-                w.push("    pub fn node(self) -> crate::Node<'t> {".to_string());
+                w.push("    pub fn node(self) -> Node<'t> {".to_string());
                 w.push("        self.node".to_string());
                 w.push("    }".to_string());
                 w.push(String::new());
@@ -1183,7 +1183,7 @@ fn convert_expr(f: &Field, infos: &HashMap<String, TypeInfo>, e: &str, b: &str) 
                 format!("{e}.map(|u| {b}.push_str(u.as_str())).unwrap_or(SqlStr::NONE)")
             }
             _ if infos[t].kind == InfoKind::SimpleSum => {
-                format!("{e}.map(|x| x as u8).unwrap_or(crate::NONE_U8)")
+                format!("{e}.map(|x| x as u8).unwrap_or(NONE_U8)")
             }
             _ => format!(
                 "{e}.map(|x| lower_{t}({b}, x)).unwrap_or({}Ref::NONE)",
@@ -1259,7 +1259,7 @@ fn emit_freeze(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
     w.push("pub fn freeze_stable_layout() -> String {".to_string());
     w.push("    let mut out = String::new();".to_string());
     w.push("    use std::fmt::Write as _;".to_string());
-    w.push("    writeln!(out, \"abi_version: {}\", crate::ABI_VERSION).unwrap();".to_string());
+    w.push("    writeln!(out, \"abi_version: {}\", ABI_VERSION).unwrap();".to_string());
 
     for info in stable {
         let r = &info.rust;
@@ -1519,12 +1519,7 @@ pub(crate) fn generate_flat_from_module(
 
     flat.push(header.clone());
     flat.push(String::new());
-    flat.push("#[allow(unused_imports)]".to_string());
-    flat.push("use crate::{".to_string());
-    flat.push("    NONE_U32, OptBool, OptByte, OptInt, OptLong, SqlCtorInfo, SqlEnc,".to_string());
-    flat.push("    SqlFieldInfo, SqlName, SqlNode, SqlSchema, SqlSection, SqlSeq,".to_string());
-    flat.push("    SqlStr, SqlTree, SqlTypeInfo, SqlTypeKind, Tree,".to_string());
-    flat.push("};".to_string());
+    flat.push(include_str!("flat_runtime.rs").trim_end().to_string());
     flat.push(String::new());
     flat.push("/// FNV-1a/64 of the sql.asdl bytes this build was generated from.".to_string());
     flat.push("/// Library-side: the host reads the hash from the descriptor.".to_string());
@@ -1557,9 +1552,11 @@ pub(crate) fn generate_flat_from_module(
 /// The generator reads the ASDL specification at `src` and writes two files
 /// into the parent directory of `dst`:
 ///
-/// - `dst` (for example, `gen_flat.rs`): `#[repr(C)]` record structs, typed node
-///   reference newtypes, constructor tag enums, `TreeBuilder`, `@stable` typed
-///   projections, layout freeze dump, and schema descriptor tables.
+/// - `dst` (for example, `gen_flat.rs`): the flat ABI boundary runtime (`SqlTree`,
+///   `Tree`, `Node`, `Value`, `export_sql_dialect!`, and `loader`), `#[repr(C)]`
+///   record structs, typed node reference newtypes, constructor tag enums,
+///   `TreeBuilder`, `@stable` typed projections, layout freeze dump, and schema
+///   descriptor tables.
 /// - `gen_convert.rs`: functions that convert an arena or owned AST (through the
 ///   read-only view API) into the flat boundary representation.
 ///
@@ -1586,7 +1583,7 @@ pub(crate) fn generate_flat_from_module(
 ///     "module Sql { expr = Lit(int value) | Add(expr left, expr right)\n file = (expr* exprs) }",
 /// )?;
 ///
-/// let files = dbt_asdl::rust::generate_flat(&spec, dir.join("gen_flat.rs"))?;
+/// let files = dbt_asdl::codegen::rust::generate_flat(&spec, dir.join("gen_flat.rs"))?;
 /// assert_eq!(files.len(), 2);
 /// assert!(dir.join("gen_flat.rs").is_file());
 /// assert!(dir.join("gen_convert.rs").is_file());

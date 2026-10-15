@@ -9,7 +9,7 @@ fn main() {
         eprintln!("usage: dbt-asdl INPUT.asdl OUTPUT.rs");
         process::exit(2);
     }
-    if let Err(err) = dbt_asdl::rust::generate_trees(&args[1], &args[2]) {
+    if let Err(err) = dbt_asdl::codegen::rust::generate_trees(&args[1], &args[2]) {
         eprintln!("{err}");
         process::exit(1);
     }
