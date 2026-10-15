@@ -11,6 +11,7 @@ readme = "README.md"
 exclude = ["src/snapshots/"]
 
 [dependencies]
+ustr = "1.1.0"
 
 [dev-dependencies]
 insta = "1.49.0"

@@ -5,7 +5,7 @@
 //!
 //! # Examples
 //!
-//! Call [`rust::generate_trees`] or [`rust::generate_flat`] from a Cargo build script (`build.rs`):
+//! Call [`codegen::rust::generate_trees`] or [`codegen::rust::generate_flat`] from a Cargo build script (`build.rs`):
 //!
 //! ```no_run
 //! use std::env;
@@ -15,22 +15,37 @@
 //! let out_dir = PathBuf::from(env::var("OUT_DIR").expect("cargo sets OUT_DIR"));
 //! let asdl_path = manifest.join("sql.asdl");
 //!
-//! dbt_asdl::rust::generate_trees(&asdl_path, out_dir.join("gen.rs"))
+//! dbt_asdl::codegen::rust::generate_trees(&asdl_path, out_dir.join("gen.rs"))
 //!     .expect("failed to generate Rust AST from sql.asdl");
 //!
-//! dbt_asdl::rust::generate_flat(&asdl_path, out_dir.join("gen_flat.rs"))
+//! dbt_asdl::codegen::rust::generate_flat(&asdl_path, out_dir.join("gen_flat.rs"))
 //!     .expect("failed to generate flat Rust AST from sql.asdl");
 //! ```
+
 pub(crate) mod asdl;
 pub(crate) mod flat;
-/// Rust AST code generation from ASDL specifications.
-pub mod rust;
+pub(crate) mod rust;
+mod sexpr;
+
+pub use sexpr::{IdentList, Sexpr, StringList, StringListIter};
+/// Interned string type for ASDL `identifier` fields.
+pub use ustr::Ustr as Identifier;
+
+/// Target-language AST code generators.
+pub mod codegen {
+    /// Rust AST code generation from ASDL specifications.
+    pub mod rust {
+        pub use crate::flat::generate_flat;
+        pub use crate::rust::generate_trees;
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use crate::asdl::*;
+    use crate::codegen::rust::{generate_flat, generate_trees};
     use crate::flat::{fnv1a64, generate_flat_from_module};
-    use crate::rust::{CodegenError, generate, generate_flat, generate_trees};
+    use crate::rust::{CodegenError, generate};
 
     const MINI_SQL_ASDL: &str = r#"
 -- Miniature SQL ASDL specification for testing

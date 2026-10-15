@@ -6,80 +6,6 @@ expression: views
 
 use crate::shared::*;
 use crate::{arena, owned};
-use ustr::Ustr;
-
-/// A borrowed list of interned identifiers: the same `&[Ustr]` in
-/// both trees.
-pub type IdentList<'a> = &'a [Ustr];
-
-/// A borrowed list of strings, in either tree representation:
-/// bump-allocated `&str` in the arena tree, owned `Box<str>` in the
-/// owned tree. Items surface as `&'a str` either way.
-#[derive(Clone, Copy, Debug)]
-pub enum StringList<'a> {
-    Owned(&'a [Box<str>]),
-    Arena(&'a [&'a str]),
-}
-
-impl<'a> StringList<'a> {
-    /// The number of strings in the list.
-    pub fn len(self) -> usize {
-        match self {
-            StringList::Owned(s) => s.len(),
-            StringList::Arena(s) => s.len(),
-        }
-    }
-
-    /// Whether the list holds no strings.
-    pub fn is_empty(self) -> bool {
-        self.len() == 0
-    }
-
-    /// The string at `i`, or None when out of bounds.
-    pub fn get(self, i: usize) -> Option<&'a str> {
-        match self {
-            StringList::Owned(s) => s.get(i).map(|b| &**b),
-            StringList::Arena(s) => s.get(i).copied(),
-        }
-    }
-
-    /// Iterate over the strings.
-    pub fn iter(self) -> StringListIter<'a> {
-        StringListIter { list: self, next: 0 }
-    }
-}
-
-/// An iterator over a `StringList`.
-pub struct StringListIter<'a> {
-    list: StringList<'a>,
-    next: usize,
-}
-
-impl<'a> Iterator for StringListIter<'a> {
-    type Item = &'a str;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let item = self.list.get(self.next)?;
-        self.next += 1;
-        Some(item)
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.list.len() - self.next;
-        (remaining, Some(remaining))
-    }
-}
-
-impl ExactSizeIterator for StringListIter<'_> {}
-
-impl<'a> IntoIterator for StringList<'a> {
-    type Item = &'a str;
-    type IntoIter = StringListIter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
 
 impl CodeLocation {
     /// The `lineno` field.
@@ -779,7 +705,7 @@ impl<'a> ExprIdentifierView<'a> {
     }
 
     /// The `parts` field.
-    pub fn parts(self) -> IdentList<'a> {
+    pub fn parts(self) -> dbt_asdl::IdentList<'a> {
         match self.node {
             ExprRef::Owned(owned::Expr::Identifier(p)) => &p.parts,
             ExprRef::Arena(arena::Expr::Identifier(p)) => &p.parts,
@@ -957,10 +883,10 @@ impl<'a> ExprCastView<'a> {
     }
 
     /// The `notes` field.
-    pub fn notes(self) -> StringList<'a> {
+    pub fn notes(self) -> dbt_asdl::StringList<'a> {
         match self.node {
-            ExprRef::Owned(owned::Expr::Cast(p)) => StringList::Owned(&p.notes),
-            ExprRef::Arena(arena::Expr::Cast(p)) => StringList::Arena(&p.notes),
+            ExprRef::Owned(owned::Expr::Cast(p)) => dbt_asdl::StringList::Owned(&p.notes),
+            ExprRef::Arena(arena::Expr::Cast(p)) => dbt_asdl::StringList::Arena(&p.notes),
             _ => unreachable!("view checked the variant at construction"),
         }
     }

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::asdl::{self, Constructor, Field, Module, Type, TypeKind};
 
 const BUILTIN_RUST: &[(&str, &str)] = &[
-    ("identifier", "Ustr"),
+    ("identifier", "dbt_asdl::Identifier"),
     ("string", "&'a str"),
     ("byte", "u8"),
     ("int", "i32"),
@@ -741,9 +741,6 @@ fn emit_compound_sum(
         w.push("    use bumpalo::collections::Vec;".to_string());
     }
     w.push("    #[allow(unused_imports)]".to_string());
-    w.push("    use ustr::Ustr;".to_string());
-    w.push(String::new());
-    w.push("    #[allow(unused_imports)]".to_string());
     w.push("    use super::*;".to_string());
     for (c, name, fields) in &ctors {
         if fields.is_empty() {
@@ -1017,16 +1014,16 @@ fn accessor_bodies(
     if f.seq {
         if f.ty == "identifier" {
             return (
-                "IdentList<'a>".to_string(),
+                "dbt_asdl::IdentList<'a>".to_string(),
                 format!("&{b}"),
                 format!("&{b}"),
             );
         }
         if f.ty == "string" {
             return (
-                "StringList<'a>".to_string(),
-                format!("StringList::Owned(&{b})"),
-                format!("StringList::Arena(&{b})"),
+                "dbt_asdl::StringList<'a>".to_string(),
+                format!("dbt_asdl::StringList::Owned(&{b})"),
+                format!("dbt_asdl::StringList::Arena(&{b})"),
             );
         }
         if is_scalar_builtin(&f.ty) {
@@ -1044,7 +1041,7 @@ fn accessor_bodies(
     }
     if f.opt {
         if f.ty == "identifier" {
-            return ("Option<Ustr>".to_string(), b.clone(), b);
+            return ("Option<dbt_asdl::Identifier>".to_string(), b.clone(), b);
         }
         if f.ty == "string" {
             return ("Option<&'a str>".to_string(), format!("{b}.as_deref()"), b);
@@ -1067,7 +1064,7 @@ fn accessor_bodies(
         );
     }
     if f.ty == "identifier" {
-        return ("Ustr".to_string(), b.clone(), b);
+        return ("dbt_asdl::Identifier".to_string(), b.clone(), b);
     }
     if f.ty == "string" {
         return ("&'a str".to_string(), format!("&{b}"), b);
@@ -1473,47 +1470,6 @@ fn emit_list_view(wv: &mut Vec<String>, info: &TypeInfo) {
     emit_list_iter(wv, &format!("{r}List"), &format!("{r}Ref<'a>"));
 }
 
-fn emit_string_list(wv: &mut Vec<String>) {
-    wv.push("/// A borrowed list of strings, in either tree representation:".to_string());
-    wv.push("/// bump-allocated `&str` in the arena tree, owned `Box<str>` in the".to_string());
-    wv.push("/// owned tree. Items surface as `&'a str` either way.".to_string());
-    wv.push("#[derive(Clone, Copy, Debug)]".to_string());
-    wv.push("pub enum StringList<'a> {".to_string());
-    wv.push("    Owned(&'a [Box<str>]),".to_string());
-    wv.push("    Arena(&'a [&'a str]),".to_string());
-    wv.push("}".to_string());
-    wv.push(String::new());
-    wv.push("impl<'a> StringList<'a> {".to_string());
-    wv.push("    /// The number of strings in the list.".to_string());
-    wv.push("    pub fn len(self) -> usize {".to_string());
-    wv.push("        match self {".to_string());
-    wv.push("            StringList::Owned(s) => s.len(),".to_string());
-    wv.push("            StringList::Arena(s) => s.len(),".to_string());
-    wv.push("        }".to_string());
-    wv.push("    }".to_string());
-    wv.push(String::new());
-    wv.push("    /// Whether the list holds no strings.".to_string());
-    wv.push("    pub fn is_empty(self) -> bool {".to_string());
-    wv.push("        self.len() == 0".to_string());
-    wv.push("    }".to_string());
-    wv.push(String::new());
-    wv.push("    /// The string at `i`, or None when out of bounds.".to_string());
-    wv.push("    pub fn get(self, i: usize) -> Option<&'a str> {".to_string());
-    wv.push("        match self {".to_string());
-    wv.push("            StringList::Owned(s) => s.get(i).map(|b| &**b),".to_string());
-    wv.push("            StringList::Arena(s) => s.get(i).copied(),".to_string());
-    wv.push("        }".to_string());
-    wv.push("    }".to_string());
-    wv.push(String::new());
-    wv.push("    /// Iterate over the strings.".to_string());
-    wv.push("    pub fn iter(self) -> StringListIter<'a> {".to_string());
-    wv.push("        StringListIter { list: self, next: 0 }".to_string());
-    wv.push("    }".to_string());
-    wv.push("}".to_string());
-    wv.push(String::new());
-    emit_list_iter(wv, "StringList", "&'a str");
-}
-
 fn emit_simple_sum_sexpr(ws: &mut Vec<String>, info: &TypeInfo) {
     ws.push(format!("impl Sexpr for {} {{", info.rust));
     ws.push("    fn write_sexpr(&self, out: &mut String) {".to_string());
@@ -1698,22 +1654,14 @@ pub(crate) fn generate(mod_node: &Module, input_name: &str) -> Result<GeneratedR
 
     shared.push(header.clone());
     shared.push(String::new());
-    shared.push("#[allow(unused_imports)]".to_string());
-    shared.push("use ustr::Ustr;".to_string());
-    shared.push(String::new());
-
     arena.push(header.clone());
     arena.push(String::new());
     arena.push("use bumpalo::collections::Vec;".to_string());
-    arena.push("pub use ustr::Ustr;".to_string());
     arena.push(String::new());
     arena.push(format!("pub use crate::shared::{{{shared_joined}}};"));
     arena.push(String::new());
 
     owned.push(header.clone());
-    owned.push(String::new());
-    owned.push("#[allow(unused_imports)]".to_string());
-    owned.push("use ustr::Ustr;".to_string());
     owned.push(String::new());
     owned.push(format!("pub use crate::shared::{{{shared_joined}}};"));
     owned.push(String::new());
@@ -1722,18 +1670,11 @@ pub(crate) fn generate(mod_node: &Module, input_name: &str) -> Result<GeneratedR
     views.push(String::new());
     views.push("use crate::shared::*;".to_string());
     views.push("use crate::{arena, owned};".to_string());
-    views.push("use ustr::Ustr;".to_string());
-    views.push(String::new());
-    views.push("/// A borrowed list of interned identifiers: the same `&[Ustr]` in".to_string());
-    views.push("/// both trees.".to_string());
-    views.push("pub type IdentList<'a> = &'a [Ustr];".to_string());
-    views.push(String::new());
-    emit_string_list(&mut views);
     views.push(String::new());
 
     sexpr.push(header);
     sexpr.push(String::new());
-    sexpr.push("use crate::Sexpr;".to_string());
+    sexpr.push("use dbt_asdl::Sexpr;".to_string());
     sexpr.push("use crate::shared::*;".to_string());
     sexpr.push("use crate::gen_views::*;".to_string());
     sexpr.push("use crate::{arena, owned};".to_string());
@@ -1796,7 +1737,6 @@ pub(crate) fn generate(mod_node: &Module, input_name: &str) -> Result<GeneratedR
         sexpr.push(String::new());
     }
 
-    emit_list_sexpr(&mut sexpr, "StringList");
     for info in list_infos {
         emit_list_sexpr(&mut sexpr, &format!("{}List", info.rust));
     }
@@ -1819,7 +1759,7 @@ pub(crate) fn generate(mod_node: &Module, input_name: &str) -> Result<GeneratedR
 /// - `<stem>_arena.rs`: the arena-allocated tree, which uses a `bumpalo` arena lifetime.
 /// - `<stem>_owned.rs`: the self-owned tree, which uses `Box` links and standard `Vec` containers.
 /// - `<stem>_views.rs`: the read-only view API over both tree representations.
-/// - `<stem>_sexpr.rs`: the canonical S-expression writer implementations.
+/// - `<stem>_sexpr.rs`: the [`Sexpr`](crate::Sexpr) implementations for the generated AST types.
 ///
 /// This function returns the paths of the five generated files.
 ///
@@ -1840,7 +1780,7 @@ pub(crate) fn generate(mod_node: &Module, input_name: &str) -> Result<GeneratedR
 /// let spec = dir.join("expr.asdl");
 /// fs::write(&spec, "module Expr { expr = Lit(int value) | Add(expr left, expr right) }")?;
 ///
-/// let files = dbt_asdl::rust::generate_trees(&spec, dir.join("gen.rs"))?;
+/// let files = dbt_asdl::codegen::rust::generate_trees(&spec, dir.join("gen.rs"))?;
 /// assert_eq!(files.len(), 5);
 /// assert!(dir.join("gen_arena.rs").is_file());
 /// assert!(dir.join("gen_owned.rs").is_file());
@@ -1885,5 +1825,3 @@ pub fn generate_trees(
 
     Ok(written)
 }
-
-pub use crate::flat::generate_flat;

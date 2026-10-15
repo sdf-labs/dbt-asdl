@@ -84,7 +84,7 @@ fn lower_when_then(b: &mut TreeBuilder, r: ast::WhenThenRef) -> WhenThenRef {
     let r = WhenThen {
         when: lower_expr(b, r.when()),
         then: lower_expr(b, r.then()),
-        op: r.op().map(|x| x as u8).unwrap_or(crate::NONE_U8),
+        op: r.op().map(|x| x as u8).unwrap_or(NONE_U8),
     };
     b.push_when_then(r)
 }
