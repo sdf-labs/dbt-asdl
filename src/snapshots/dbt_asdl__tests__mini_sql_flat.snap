@@ -935,7 +935,7 @@ impl<'t> SeqView<'t> {
             SqlEnc::Long => Value::Long(unsafe { p.cast::<i64>().read() }),
             SqlEnc::Byte | SqlEnc::Bool => Value::Byte(unsafe { p.cast::<u8>().read() }),
             SqlEnc::Node => Value::Node(Node {
-                tree: self,
+                tree: self.tree,
                 ty: self.elem_ty,
                 index: unsafe { p.cast::<u32>().read() },
             }),
