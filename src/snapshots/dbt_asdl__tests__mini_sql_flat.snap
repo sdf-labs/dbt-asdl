@@ -35,13 +35,13 @@ pub const SECTION_STRINGS: u32 = 0;
 /// `off == NONE_U32` is None; an empty string is `{0, 0}`, distinct from None.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SqlStr {
+pub struct FlatStr {
     pub off: u32,
     pub len: u32,
 }
 
-impl SqlStr {
-    pub const NONE: Self = SqlStr { off: NONE_U32, len: 0 };
+impl FlatStr {
+    pub const NONE: Self = FlatStr { off: NONE_U32, len: 0 };
 
     pub fn is_none(self) -> bool {
         self.off == NONE_U32
@@ -52,7 +52,7 @@ impl SqlStr {
 /// section.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SqlSeq {
+pub struct FlatSeq {
     pub off: u32,
     pub len: u32,
 }
@@ -135,7 +135,7 @@ impl From<Option<bool>> for OptBool {
 /// constructor of an attribute-less sum).
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct SqlNode {
+pub struct FlatNode {
     pub tag: u16,
     pub _pad: u16,
     pub payload: u32,
@@ -144,7 +144,7 @@ pub struct SqlNode {
 // ---------------------------------------------------------------------------
 // The descriptor types: the dialect library's metadata and the schema-as-data
 // the host's introspection reads. `abi_version` is the first field of both
-// SqlDialect and SqlTree, readable without knowing the rest of the layout.
+// FlatDialect and FlatTree, readable without knowing the rest of the layout.
 // ---------------------------------------------------------------------------
 
 /// A name (or any static string) held by a descriptor: a pointer into the
@@ -152,14 +152,14 @@ pub struct SqlNode {
 /// pointers never cross the boundary.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct SqlName {
+pub struct FlatName {
     pub ptr: *const u8,
     pub len: u32,
 }
 
-impl SqlName {
+impl FlatName {
     pub const fn from_static(s: &'static str) -> Self {
-        SqlName { ptr: s.as_ptr(), len: s.len() as u32 }
+        FlatName { ptr: s.as_ptr(), len: s.len() as u32 }
     }
 
     /// The name as a str. Safe to call on any descriptor the handshake
@@ -173,18 +173,18 @@ impl SqlName {
 }
 
 /// The field encodings: how one field's bytes at `record + offset` read.
-/// Stored as `u8` in the tables and converted through [`SqlEnc::from_u8`]
+/// Stored as `u8` in the tables and converted through [`FlatEnc::from_u8`]
 /// so an unrecognized value is data, not UB.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SqlEnc {
+pub enum FlatEnc {
     Bool = 0,
     Byte = 1,
     Int = 2,
     Long = 3,
     /// A `u8` discriminant of the simple sum `type_index`.
     SimpleSum = 4,
-    /// A `SqlStr`.
+    /// A `FlatStr`.
     Str = 5,
     /// A `u32` node index of type `type_index`.
     Node = 6,
@@ -194,41 +194,41 @@ pub enum SqlEnc {
     OptLong = 10,
     /// A `u8` discriminant, `NONE_U8` for None.
     OptSimpleSum = 11,
-    /// A `SqlStr`, `off == NONE_U32` for None.
+    /// A `FlatStr`, `off == NONE_U32` for None.
     OptStr = 12,
     /// A `u32` node index of type `type_index`, `NONE_U32` for None.
     OptNode = 13,
-    /// A `SqlSeq` of the element type `type_index`.
+    /// A `FlatSeq` of the element type `type_index`.
     Seq = 14,
 }
 
-impl SqlEnc {
-    pub fn from_u8(v: u8) -> Option<SqlEnc> {
+impl FlatEnc {
+    pub fn from_u8(v: u8) -> Option<FlatEnc> {
         Some(match v {
-            0 => SqlEnc::Bool,
-            1 => SqlEnc::Byte,
-            2 => SqlEnc::Int,
-            3 => SqlEnc::Long,
-            4 => SqlEnc::SimpleSum,
-            5 => SqlEnc::Str,
-            6 => SqlEnc::Node,
-            7 => SqlEnc::OptBool,
-            8 => SqlEnc::OptByte,
-            9 => SqlEnc::OptInt,
-            10 => SqlEnc::OptLong,
-            11 => SqlEnc::OptSimpleSum,
-            12 => SqlEnc::OptStr,
-            13 => SqlEnc::OptNode,
-            14 => SqlEnc::Seq,
+            0 => FlatEnc::Bool,
+            1 => FlatEnc::Byte,
+            2 => FlatEnc::Int,
+            3 => FlatEnc::Long,
+            4 => FlatEnc::SimpleSum,
+            5 => FlatEnc::Str,
+            6 => FlatEnc::Node,
+            7 => FlatEnc::OptBool,
+            8 => FlatEnc::OptByte,
+            9 => FlatEnc::OptInt,
+            10 => FlatEnc::OptLong,
+            11 => FlatEnc::OptSimpleSum,
+            12 => FlatEnc::OptStr,
+            13 => FlatEnc::OptNode,
+            14 => FlatEnc::Seq,
             _ => return None,
         })
     }
 }
 
-/// The kind of a schema type, stored as `u8` like [`SqlEnc`].
+/// The kind of a schema type, stored as `u8` like [`FlatEnc`].
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SqlTypeKind {
+pub enum FlatTypeKind {
     /// A builtin scalar or text type: `bool`, `byte`, `int`, `long`,
     /// `identifier`, `string`.
     Builtin = 0,
@@ -240,13 +240,13 @@ pub enum SqlTypeKind {
     Sum = 3,
 }
 
-impl SqlTypeKind {
-    pub fn from_u8(v: u8) -> Option<SqlTypeKind> {
+impl FlatTypeKind {
+    pub fn from_u8(v: u8) -> Option<FlatTypeKind> {
         Some(match v {
-            0 => SqlTypeKind::Builtin,
-            1 => SqlTypeKind::SimpleSum,
-            2 => SqlTypeKind::Product,
-            3 => SqlTypeKind::Sum,
+            0 => FlatTypeKind::Builtin,
+            1 => FlatTypeKind::SimpleSum,
+            2 => FlatTypeKind::Product,
+            3 => FlatTypeKind::Sum,
             _ => return None,
         })
     }
@@ -255,11 +255,11 @@ impl SqlTypeKind {
 /// One field of a constructor payload or product record.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct SqlFieldInfo {
-    pub name: SqlName,
+pub struct FlatFieldInfo {
+    pub name: FlatName,
     /// Byte offset of the field within its record.
     pub offset: u32,
-    /// A `SqlEnc` value.
+    /// A `FlatEnc` value.
     pub enc: u8,
     /// The referenced/element type, for `SimpleSum`/`Node`/`OptNode`/`Seq`/
     /// `OptSimpleSum` encodings; `u16::MAX` otherwise.
@@ -269,26 +269,26 @@ pub struct SqlFieldInfo {
 /// One constructor of a sum (compound or simple).
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct SqlCtorInfo {
-    pub name: SqlName,
+pub struct FlatCtorInfo {
+    pub name: FlatName,
     /// The tag value within its sum.
     pub tag: u16,
     /// The owning sum's index in the type table.
     pub type_index: u16,
     /// The section holding this constructor's payload records, or -1.
     pub payload_section: i32,
-    pub fields: *const SqlFieldInfo,
+    pub fields: *const FlatFieldInfo,
     pub field_count: u32,
 }
 
 /// One type of the schema.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct SqlTypeInfo {
-    pub name: SqlName,
-    /// A `SqlTypeKind` value.
+pub struct FlatTypeInfo {
+    pub name: FlatName,
+    /// A `FlatTypeKind` value.
     pub kind: u8,
-    /// The `SqlEnc` of a value of this type when it appears inline or as a
+    /// The `FlatEnc` of a value of this type when it appears inline or as a
     /// sequence element (`Node` for products and compound sums, `Str` for
     /// `identifier`/`string`, the scalar encodings for the rest).
     pub enc: u8,
@@ -303,7 +303,7 @@ pub struct SqlTypeInfo {
     pub ctor_off: u32,
     pub ctor_count: u32,
     /// For products: the product's fields.
-    pub fields: *const SqlFieldInfo,
+    pub fields: *const FlatFieldInfo,
     pub field_count: u32,
 }
 
@@ -311,12 +311,12 @@ pub struct SqlTypeInfo {
 /// inside the library. The host reads it through this layout; identity is
 /// by name, resolved at run time, never by hardcoded index.
 #[repr(C)]
-pub struct SqlSchema {
+pub struct FlatSchema {
     pub abi_version: u32,
     pub schema_hash: u64,
-    pub types: *const SqlTypeInfo,
+    pub types: *const FlatTypeInfo,
     pub type_count: u32,
-    pub ctors: *const SqlCtorInfo,
+    pub ctors: *const FlatCtorInfo,
     pub ctor_count: u32,
     /// The type index of the root (`file`).
     pub root_type: u32,
@@ -325,7 +325,7 @@ pub struct SqlSchema {
 /// One section of a tree: a typed array the library owns.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct SqlSection {
+pub struct FlatSection {
     pub ptr: *mut u8,
     /// Element count.
     pub len: u32,
@@ -338,13 +338,13 @@ pub struct SqlSection {
 /// trees from N dialect libraries can coexist without the host tracking
 /// which library owns what.
 #[repr(C)]
-pub struct SqlTree {
+pub struct FlatTree {
     pub abi_version: u32,
     pub schema_hash: u64,
     /// Library-side destructor: frees the tree and every section.
-    pub release: unsafe extern "C" fn(*mut SqlTree),
-    pub schema: *const SqlSchema,
-    pub sections: *mut SqlSection,
+    pub release: unsafe extern "C" fn(*mut FlatTree),
+    pub schema: *const FlatSchema,
+    pub sections: *mut FlatSection,
     pub section_count: u32,
     /// The root node's index in the schema's `root_type` section.
     pub root_index: u32,
@@ -352,36 +352,36 @@ pub struct SqlTree {
 
 /// A loaded dialect library's descriptor: metadata + entry points.
 #[repr(C)]
-pub struct SqlDialect {
+pub struct FlatDialect {
     pub abi_version: u32,
     pub schema_hash: u64,
-    pub name: SqlName,
-    pub dialect_version: SqlName,
-    pub schema: *const SqlSchema,
-    pub parse: SqlParseFn,
+    pub name: FlatName,
+    pub dialect_version: FlatName,
+    pub schema: *const FlatSchema,
+    pub parse: FlatParseFn,
 }
 
 /// The parse entry point. Reads `src[..src_len]` synchronously. Returns the
 /// tree, or null on error with up to `err_buf_cap` bytes of message written
 /// to `err_buf` and the message length to `err_len`. `*err_len` is 0 on
 /// success. No memory changes hands: the caller provides the error buffer.
-pub type SqlParseFn = unsafe extern "C" fn(
+pub type FlatParseFn = unsafe extern "C" fn(
     src: *const u8,
     src_len: usize,
     err_buf: *mut u8,
     err_buf_cap: usize,
     err_len: *mut usize,
-) -> *mut SqlTree;
+) -> *mut FlatTree;
 
 // The descriptor tables are static rodata shared across threads; the raw
 // pointers inside point at other statics of the same library, which is
 // never unloaded (the load-once policy), so the shared references are sound.
-unsafe impl Sync for SqlName {}
-unsafe impl Sync for SqlFieldInfo {}
-unsafe impl Sync for SqlCtorInfo {}
-unsafe impl Sync for SqlTypeInfo {}
-unsafe impl Sync for SqlSchema {}
-unsafe impl Sync for SqlDialect {}
+unsafe impl Sync for FlatName {}
+unsafe impl Sync for FlatFieldInfo {}
+unsafe impl Sync for FlatCtorInfo {}
+unsafe impl Sync for FlatTypeInfo {}
+unsafe impl Sync for FlatSchema {}
+unsafe impl Sync for FlatDialect {}
 
 // ---------------------------------------------------------------------------
 // Host-side introspection
@@ -421,7 +421,7 @@ impl std::error::Error for AbiError {}
 /// `schema` must be the descriptor of a dialect library whose
 /// `abi_version` this host supports; the tables are read in place from the
 /// library's memory.
-pub unsafe fn validate_schema(schema: &SqlSchema) -> Result<(), String> {
+pub unsafe fn validate_schema(schema: &FlatSchema) -> Result<(), String> {
     if !(ABI_VERSION_MIN..=ABI_VERSION).contains(&schema.abi_version) {
         return Err(format!(
             "schema abi_version {} outside the supported range {ABI_VERSION_MIN}..={ABI_VERSION}",
@@ -441,16 +441,16 @@ pub unsafe fn validate_schema(schema: &SqlSchema) -> Result<(), String> {
     let ctors = unsafe { table(schema.ctors, schema.ctor_count) };
     for (i, t) in types.iter().enumerate() {
         let name = t.name.as_str();
-        let kind = SqlTypeKind::from_u8(t.kind)
+        let kind = FlatTypeKind::from_u8(t.kind)
             .ok_or_else(|| format!("type {name}: unknown kind {}", t.kind))?;
-        let enc = SqlEnc::from_u8(t.enc)
+        let enc = FlatEnc::from_u8(t.enc)
             .ok_or_else(|| format!("type {name}: unknown encoding {}", t.enc))?;
         let enc_ok = match (kind, enc) {
-            (SqlTypeKind::Product | SqlTypeKind::Sum, SqlEnc::Node) => true,
-            (SqlTypeKind::SimpleSum, SqlEnc::SimpleSum) => true,
+            (FlatTypeKind::Product | FlatTypeKind::Sum, FlatEnc::Node) => true,
+            (FlatTypeKind::SimpleSum, FlatEnc::SimpleSum) => true,
             (
-                SqlTypeKind::Builtin,
-                SqlEnc::Bool | SqlEnc::Byte | SqlEnc::Int | SqlEnc::Long | SqlEnc::Str,
+                FlatTypeKind::Builtin,
+                FlatEnc::Bool | FlatEnc::Byte | FlatEnc::Int | FlatEnc::Long | FlatEnc::Str,
             ) => true,
             _ => false,
         };
@@ -460,10 +460,10 @@ pub unsafe fn validate_schema(schema: &SqlSchema) -> Result<(), String> {
         if t.node_section < -1 || t.seq_section < -1 {
             return Err(format!("type {name}: section index below -1"));
         }
-        if kind == SqlTypeKind::Product {
+        if kind == FlatTypeKind::Product {
             validate_field_table(name, t.fields, t.field_count, schema.type_count)?;
         }
-        if kind == SqlTypeKind::SimpleSum || kind == SqlTypeKind::Sum {
+        if kind == FlatTypeKind::SimpleSum || kind == FlatTypeKind::Sum {
             if t.ctor_off + t.ctor_count > schema.ctor_count {
                 return Err(format!("type {name}: constructor range out of bounds"));
             }
@@ -508,7 +508,7 @@ unsafe fn table<'a, T>(ptr: *const T, len: u32) -> &'a [T] {
 /// real one.
 fn validate_field_table(
     owner: &str,
-    fields: *const SqlFieldInfo,
+    fields: *const FlatFieldInfo,
     field_count: u32,
     type_count: u32,
 ) -> Result<(), String> {
@@ -518,15 +518,15 @@ fn validate_field_table(
     let fields = unsafe { table(fields, field_count) };
     for f in fields {
         let fname = f.name.as_str();
-        let enc = SqlEnc::from_u8(f.enc)
+        let enc = FlatEnc::from_u8(f.enc)
             .ok_or_else(|| format!("{owner}.{fname}: unknown encoding {}", f.enc))?;
         let references_type = matches!(
             enc,
-            SqlEnc::SimpleSum
-                | SqlEnc::Node
-                | SqlEnc::OptSimpleSum
-                | SqlEnc::OptNode
-                | SqlEnc::Seq
+            FlatEnc::SimpleSum
+                | FlatEnc::Node
+                | FlatEnc::OptSimpleSum
+                | FlatEnc::OptNode
+                | FlatEnc::Seq
         );
         if references_type && (f.type_index as u32) >= type_count {
             return Err(format!(
@@ -541,7 +541,7 @@ fn validate_field_table(
 /// A library-owned flat tree under host management: walks in place, frees
 /// through the header's `release` on drop.
 pub struct Tree {
-    raw: *mut SqlTree,
+    raw: *mut FlatTree,
 }
 
 impl Tree {
@@ -550,17 +550,17 @@ impl Tree {
     /// through its own `release`.
     ///
     /// The version handshake is the loader's job, done once per library on
-    /// its `SqlDialect` descriptor; typed projections are not gated beyond
+    /// its `FlatDialect` descriptor; typed projections are not gated beyond
     /// that (strict-only). The checks here are the per-tree invariants that
     /// keep the handshake sound afterwards: a host may hold trees from
     /// several libraries built with different versions, and a `*mut
-    /// SqlTree` does not say which library minted it, so adoption re-reads
+    /// FlatTree` does not say which library minted it, so adoption re-reads
     /// the header (three scalar comparisons).
     ///
     /// # Safety
-    /// `raw` must be a valid `*mut SqlTree` produced by a library whose
+    /// `raw` must be a valid `*mut FlatTree` produced by a library whose
     /// schema lies within this host's supported ABI range.
-    pub unsafe fn from_raw(raw: *mut SqlTree) -> Result<Tree, AbiError> {
+    pub unsafe fn from_raw(raw: *mut FlatTree) -> Result<Tree, AbiError> {
         if raw.is_null() {
             return Err(AbiError::NullTree);
         }
@@ -586,21 +586,21 @@ impl Tree {
         unsafe { (*self.raw).schema_hash }
     }
 
-    fn schema(&self) -> &SqlSchema {
+    fn schema(&self) -> &FlatSchema {
         unsafe { &*(*self.raw).schema }
     }
 
-    fn types(&self) -> &[SqlTypeInfo] {
+    fn types(&self) -> &[FlatTypeInfo] {
         let s = self.schema();
         unsafe { table(s.types, s.type_count) }
     }
 
-    fn ctors(&self) -> &[SqlCtorInfo] {
+    fn ctors(&self) -> &[FlatCtorInfo] {
         let s = self.schema();
         unsafe { table(s.ctors, s.ctor_count) }
     }
 
-    fn type_info(&self, ty: u16) -> &SqlTypeInfo {
+    fn type_info(&self, ty: u16) -> &FlatTypeInfo {
         &self.types()[ty as usize]
     }
 
@@ -646,7 +646,7 @@ impl Tree {
         (tag as u32).lt(&t.ctor_count).then(|| ctor.name.as_str())
     }
 
-    fn str_at(&self, s: SqlStr) -> &str {
+    fn str_at(&self, s: FlatStr) -> &str {
         let (base, _) = self.section(SECTION_STRINGS as i32);
         unsafe {
             std::str::from_utf8_unchecked(std::slice::from_raw_parts(
@@ -659,12 +659,12 @@ impl Tree {
     /// The node's constructor tag within its sum, for typed projections.
     pub(crate) fn sum_tag(&self, ty: u16, index: u32) -> Option<u16> {
         let t = self.type_info(ty);
-        if SqlTypeKind::from_u8(t.kind) != Some(SqlTypeKind::Sum) || t.node_section < 0 {
+        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) || t.node_section < 0 {
             return None;
         }
         let (base, stride) = self.section(t.node_section);
-        let node: SqlNode =
-            unsafe { ((base + index as usize * stride) as *const SqlNode).read() };
+        let node: FlatNode =
+            unsafe { ((base + index as usize * stride) as *const FlatNode).read() };
         Some(node.tag)
     }
 
@@ -672,7 +672,7 @@ impl Tree {
     /// projections. None when `ty` is not a product.
     pub(crate) fn product_ptr(&self, ty: u16, index: u32) -> Option<(*const u8, usize)> {
         let t = self.type_info(ty);
-        if SqlTypeKind::from_u8(t.kind) != Some(SqlTypeKind::Product) || t.node_section < 0 {
+        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Product) || t.node_section < 0 {
             return None;
         }
         let (base, stride) = self.section(t.node_section);
@@ -683,7 +683,7 @@ impl Tree {
     /// tag is `tag`, for typed projections.
     pub(crate) fn payload_ptr(&self, ty: u16, index: u32, tag: u16) -> Option<(*const u8, usize)> {
         let t = self.type_info(ty);
-        if SqlTypeKind::from_u8(t.kind) != Some(SqlTypeKind::Sum) || t.node_section < 0 {
+        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) || t.node_section < 0 {
             return None;
         }
         if self.sum_tag(ty, index)? != tag {
@@ -695,8 +695,8 @@ impl Tree {
         }
         let (pbase, pstride) = self.section(ctor.payload_section);
         let (base, stride) = self.section(t.node_section);
-        let node: SqlNode =
-            unsafe { ((base + index as usize * stride) as *const SqlNode).read() };
+        let node: FlatNode =
+            unsafe { ((base + index as usize * stride) as *const FlatNode).read() };
         Some(((pbase + node.payload as usize * pstride) as *const u8, pstride))
     }
 
@@ -706,17 +706,17 @@ impl Tree {
         &self,
         ty: u16,
         index: u32,
-    ) -> (*const u8, &'static [SqlFieldInfo], Option<&SqlCtorInfo>) {
+    ) -> (*const u8, &'static [FlatFieldInfo], Option<&FlatCtorInfo>) {
         let t = self.type_info(ty);
         let (base, stride) = self.section(t.node_section);
-        match SqlTypeKind::from_u8(t.kind) {
-            Some(SqlTypeKind::Product) => {
+        match FlatTypeKind::from_u8(t.kind) {
+            Some(FlatTypeKind::Product) => {
                 let fields = unsafe { table(t.fields, t.field_count) };
                 ((base + index as usize * stride) as *const u8, fields, None)
             }
             _ => {
-                let node: SqlNode =
-                    unsafe { ((base + index as usize * stride) as *const SqlNode).read() };
+                let node: FlatNode =
+                    unsafe { ((base + index as usize * stride) as *const FlatNode).read() };
                 let ctor = &self.ctors()[t.ctor_off as usize + node.tag as usize];
                 if ctor.payload_section < 0 {
                     return (std::ptr::null(), &[], Some(ctor));
@@ -732,38 +732,38 @@ impl Tree {
         }
     }
 
-    fn read_field(&self, base: *const u8, f: &SqlFieldInfo) -> Value<'_> {
+    fn read_field(&self, base: *const u8, f: &FlatFieldInfo) -> Value<'_> {
         let p = unsafe { base.add(f.offset as usize) };
-        let enc = SqlEnc::from_u8(f.enc).expect("schema and host ABI agree (handshake)");
+        let enc = FlatEnc::from_u8(f.enc).expect("schema and host ABI agree (handshake)");
         match enc {
-            SqlEnc::Bool => Value::Bool(unsafe { p.cast::<u8>().read() } != 0),
-            SqlEnc::Byte => Value::Byte(unsafe { p.cast::<u8>().read() }),
-            SqlEnc::Int => Value::Int(unsafe { p.cast::<i32>().read() }),
-            SqlEnc::Long => Value::Long(unsafe { p.cast::<i64>().read() }),
-            SqlEnc::SimpleSum => Value::SimpleSum(f.type_index, unsafe { p.cast::<u8>().read() }),
-            SqlEnc::Str => Value::Str(self.str_at(unsafe { p.cast::<SqlStr>().read() })),
-            SqlEnc::Node => Value::Node(Node {
+            FlatEnc::Bool => Value::Bool(unsafe { p.cast::<u8>().read() } != 0),
+            FlatEnc::Byte => Value::Byte(unsafe { p.cast::<u8>().read() }),
+            FlatEnc::Int => Value::Int(unsafe { p.cast::<i32>().read() }),
+            FlatEnc::Long => Value::Long(unsafe { p.cast::<i64>().read() }),
+            FlatEnc::SimpleSum => Value::SimpleSum(f.type_index, unsafe { p.cast::<u8>().read() }),
+            FlatEnc::Str => Value::Str(self.str_at(unsafe { p.cast::<FlatStr>().read() })),
+            FlatEnc::Node => Value::Node(Node {
                 tree: self,
                 ty: f.type_index,
                 index: unsafe { p.cast::<u32>().read() },
             }),
-            SqlEnc::OptBool => match unsafe { p.cast::<OptBool>().read() }.get() {
+            FlatEnc::OptBool => match unsafe { p.cast::<OptBool>().read() }.get() {
                 Some(v) => Value::Bool(v),
                 None => Value::None,
             },
-            SqlEnc::OptByte => match unsafe { p.cast::<OptByte>().read() }.get() {
+            FlatEnc::OptByte => match unsafe { p.cast::<OptByte>().read() }.get() {
                 Some(v) => Value::Byte(v),
                 None => Value::None,
             },
-            SqlEnc::OptInt => match unsafe { p.cast::<OptInt>().read() }.get() {
+            FlatEnc::OptInt => match unsafe { p.cast::<OptInt>().read() }.get() {
                 Some(v) => Value::Int(v),
                 None => Value::None,
             },
-            SqlEnc::OptLong => match unsafe { p.cast::<OptLong>().read() }.get() {
+            FlatEnc::OptLong => match unsafe { p.cast::<OptLong>().read() }.get() {
                 Some(v) => Value::Long(v),
                 None => Value::None,
             },
-            SqlEnc::OptSimpleSum => {
+            FlatEnc::OptSimpleSum => {
                 let v = unsafe { p.cast::<u8>().read() };
                 if v == NONE_U8 {
                     Value::None
@@ -771,15 +771,15 @@ impl Tree {
                     Value::SimpleSum(f.type_index, v)
                 }
             }
-            SqlEnc::OptStr => {
-                let s = unsafe { p.cast::<SqlStr>().read() };
+            FlatEnc::OptStr => {
+                let s = unsafe { p.cast::<FlatStr>().read() };
                 if s.is_none() {
                     Value::None
                 } else {
                     Value::Str(self.str_at(s))
                 }
             }
-            SqlEnc::OptNode => {
+            FlatEnc::OptNode => {
                 let index = unsafe { p.cast::<u32>().read() };
                 if index == NONE_U32 {
                     Value::None
@@ -787,10 +787,10 @@ impl Tree {
                     Value::Node(Node { tree: self, ty: f.type_index, index })
                 }
             }
-            SqlEnc::Seq => Value::Seq(SeqView {
+            FlatEnc::Seq => Value::Seq(SeqView {
                 tree: self,
                 elem_ty: f.type_index,
-                seq: unsafe { p.cast::<SqlSeq>().read() },
+                seq: unsafe { p.cast::<FlatSeq>().read() },
             }),
         }
     }
@@ -850,17 +850,17 @@ impl<'t> Node<'t> {
     /// [`Tree::kind_by_name`]); None for products.
     pub fn kind_id(self) -> Option<u32> {
         let t = self.tree.type_info(self.ty);
-        if SqlTypeKind::from_u8(t.kind) != Some(SqlTypeKind::Sum) {
+        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) {
             return None;
         }
         let (base, stride) = self.tree.section(t.node_section);
-        let node: SqlNode =
-            unsafe { ((base + self.index as usize * stride) as *const SqlNode).read() };
+        let node: FlatNode =
+            unsafe { ((base + self.index as usize * stride) as *const FlatNode).read() };
         Some(t.ctor_off + node.tag as u32)
     }
 
     /// The node's fields, as raw descriptors (name + encoding + offset).
-    pub fn fields(self) -> &'t [SqlFieldInfo] {
+    pub fn fields(self) -> &'t [FlatFieldInfo] {
         let (_, fields, _) = self.tree.node_record(self.ty, self.index);
         fields
     }
@@ -902,7 +902,7 @@ pub enum Value<'t> {
 pub struct SeqView<'t> {
     tree: &'t Tree,
     elem_ty: u16,
-    seq: SqlSeq,
+    seq: FlatSeq,
 }
 
 impl<'t> SeqView<'t> {
@@ -927,14 +927,14 @@ impl<'t> SeqView<'t> {
         let t = self.tree.type_info(self.elem_ty);
         let (base, stride) = self.tree.section(t.seq_section);
         let p = (base + (self.seq.off as usize + i) * stride) as *const u8;
-        let enc = SqlEnc::from_u8(t.enc).expect("schema and host ABI agree (handshake)");
+        let enc = FlatEnc::from_u8(t.enc).expect("schema and host ABI agree (handshake)");
         Some(match enc {
-            SqlEnc::Str => Value::Str(self.tree.str_at(unsafe { p.cast::<SqlStr>().read() })),
-            SqlEnc::SimpleSum => Value::SimpleSum(self.elem_ty, unsafe { p.cast::<u8>().read() }),
-            SqlEnc::Int => Value::Int(unsafe { p.cast::<i32>().read() }),
-            SqlEnc::Long => Value::Long(unsafe { p.cast::<i64>().read() }),
-            SqlEnc::Byte | SqlEnc::Bool => Value::Byte(unsafe { p.cast::<u8>().read() }),
-            SqlEnc::Node => Value::Node(Node {
+            FlatEnc::Str => Value::Str(self.tree.str_at(unsafe { p.cast::<FlatStr>().read() })),
+            FlatEnc::SimpleSum => Value::SimpleSum(self.elem_ty, unsafe { p.cast::<u8>().read() }),
+            FlatEnc::Int => Value::Int(unsafe { p.cast::<i32>().read() }),
+            FlatEnc::Long => Value::Long(unsafe { p.cast::<i64>().read() }),
+            FlatEnc::Byte | FlatEnc::Bool => Value::Byte(unsafe { p.cast::<u8>().read() }),
+            FlatEnc::Node => Value::Node(Node {
                 tree: self.tree,
                 ty: self.elem_ty,
                 index: unsafe { p.cast::<u32>().read() },
@@ -961,13 +961,13 @@ impl<'t> SeqView<'t> {
 /// Raw parts of the exported entry point's contract; called only by the
 /// wrapper `export_sql_dialect!` generates.
 pub unsafe fn parse_entry(
-    parse: fn(&str) -> Result<*mut SqlTree, String>,
+    parse: fn(&str) -> Result<*mut FlatTree, String>,
     src: *const u8,
     src_len: usize,
     err_buf: *mut u8,
     err_buf_cap: usize,
     err_len: *mut usize,
-) -> *mut SqlTree {
+) -> *mut FlatTree {
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let bytes = unsafe { std::slice::from_raw_parts(src, src_len) };
         match std::str::from_utf8(bytes) {
@@ -1002,20 +1002,20 @@ pub unsafe fn parse_entry(
 /// export_sql_dialect!(sql_dialect_snowflake, "snowflake", "1.0.0", parse);
 /// ```
 ///
-/// expands to a `static` [`SqlDialect`] plus
-/// `pub extern "C" fn sql_dialect_snowflake() -> *const SqlDialect`. `parse`
-/// is a `fn(&str) -> Result<*mut SqlTree, String>` — typically the lowering
+/// expands to a `static` [`FlatDialect`] plus
+/// `pub extern "C" fn sql_dialect_snowflake() -> *const FlatDialect`. `parse`
+/// is a `fn(&str) -> Result<*mut FlatTree, String>` — typically the lowering
 /// plus [`TreeBuilder::finish`]. Per-dialect symbols (not a generic entry)
 /// keep static linking possible. Requires the `builder` feature: the
 /// descriptor references the library-side schema statics.
 #[macro_export]
 macro_rules! export_sql_dialect {
     ($entry:ident, $name:expr, $version:expr, $parse:expr) => {
-        static DIALECT: $crate::SqlDialect = $crate::SqlDialect {
+        static DIALECT: $crate::FlatDialect = $crate::FlatDialect {
             abi_version: $crate::ABI_VERSION,
             schema_hash: $crate::SCHEMA_HASH,
-            name: $crate::SqlName::from_static($name),
-            dialect_version: $crate::SqlName::from_static($version),
+            name: $crate::FlatName::from_static($name),
+            dialect_version: $crate::FlatName::from_static($version),
             schema: &$crate::SCHEMA,
             parse: {
                 unsafe extern "C" fn wrapped(
@@ -1024,7 +1024,7 @@ macro_rules! export_sql_dialect {
                     err_buf: *mut u8,
                     err_buf_cap: usize,
                     err_len: *mut usize,
-                ) -> *mut $crate::SqlTree {
+                ) -> *mut $crate::FlatTree {
                     unsafe {
                         $crate::parse_entry($parse, src, src_len, err_buf, err_buf_cap, err_len)
                     }
@@ -1035,7 +1035,7 @@ macro_rules! export_sql_dialect {
 
         /// The dialect descriptor entry point.
         #[unsafe(no_mangle)]
-        pub extern "C" fn $entry() -> *const $crate::SqlDialect {
+        pub extern "C" fn $entry() -> *const $crate::FlatDialect {
             &DIALECT
         }
     };
@@ -1152,14 +1152,14 @@ fn push_int(v: i64, out: &mut String) {
 pub mod loader {
     use std::path::Path;
 
-    use super::{ABI_VERSION, ABI_VERSION_MIN, AbiError, SqlDialect, Tree, validate_schema};
+    use super::{ABI_VERSION, ABI_VERSION_MIN, AbiError, FlatDialect, Tree, validate_schema};
 
     /// A loaded dialect library: its descriptor plus the parse entry point.
     ///
     /// The library is never unloaded (the load-once policy), so the descriptor
     /// and every tree it produces stay valid for the rest of the process.
     pub struct Dialect {
-        descriptor: &'static SqlDialect,
+        descriptor: &'static FlatDialect,
     }
 
     /// Why a library was not loaded.
@@ -1206,7 +1206,7 @@ pub mod loader {
                 .map_err(|e| LoadError::Open(e.to_string()))?;
             let symbol = format!("sql_dialect_{name}");
             let entry = unsafe {
-                lib.get::<unsafe extern "C" fn() -> *const SqlDialect>(symbol.as_bytes())
+                lib.get::<unsafe extern "C" fn() -> *const FlatDialect>(symbol.as_bytes())
             }
             .map_err(|_| LoadError::MissingSymbol(symbol))?;
             let raw = unsafe { entry() };
@@ -1230,7 +1230,7 @@ pub mod loader {
         }
 
         /// The library's descriptor.
-        pub fn descriptor(&self) -> &SqlDialect {
+        pub fn descriptor(&self) -> &FlatDialect {
             self.descriptor
         }
 
@@ -1523,7 +1523,7 @@ pub mod literal {
     #[derive(Clone, Copy, Debug)]
     pub struct Number {
         pub span: SpanRef,
-        pub text: SqlStr,
+        pub text: FlatStr,
     }
 
     /// `Literal::String`.
@@ -1531,7 +1531,7 @@ pub mod literal {
     #[derive(Clone, Copy, Debug)]
     pub struct String {
         pub span: SpanRef,
-        pub value: SqlStr,
+        pub value: FlatStr,
     }
 
     /// `Literal::Null`.
@@ -1562,7 +1562,7 @@ pub mod expr {
     #[derive(Clone, Copy, Debug)]
     pub struct Identifier {
         pub span: SpanRef,
-        pub parts: SqlSeq,
+        pub parts: FlatSeq,
     }
 
     /// `Expr::Literal`.
@@ -1589,7 +1589,7 @@ pub mod expr {
     pub struct Case {
         pub span: SpanRef,
         pub operand: ExprRef,
-        pub cases: SqlSeq,
+        pub cases: FlatSeq,
         pub r#else: ExprRef,
     }
 
@@ -1600,7 +1600,7 @@ pub mod expr {
         pub span: SpanRef,
         pub e: ExprRef,
         pub to: DataTypeRef,
-        pub notes: SqlSeq,
+        pub notes: FlatSeq,
     }
 }
 
@@ -1608,8 +1608,8 @@ pub mod expr {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct File {
-    pub exprs: SqlSeq,
-    pub spans: SqlSeq,
+    pub exprs: FlatSeq,
+    pub spans: FlatSeq,
 }
 
 // ------------------------------------------------------------------
@@ -1621,28 +1621,28 @@ pub struct File {
 /// The flat tree under construction: one growable buffer per section.
 /// Indices need no fixups on growth, so nodes can be pushed in any
 /// order (children first is the natural order for lowerings). `finish`
-/// freezes the buffers into a `SqlTree` for the host.
+/// freezes the buffers into a `FlatTree` for the host.
 pub struct TreeBuilder {
     strings: Vec<u8>,
     code_location_nodes: Vec<CodeLocation>,
     span_nodes: Vec<Span>,
-    data_type_nodes: Vec<SqlNode>,
+    data_type_nodes: Vec<FlatNode>,
     data_type_int: Vec<data_type::Int>,
     data_type_bool: Vec<data_type::Bool>,
-    literal_nodes: Vec<SqlNode>,
+    literal_nodes: Vec<FlatNode>,
     literal_number: Vec<literal::Number>,
     literal_string: Vec<literal::String>,
     literal_null: Vec<literal::Null>,
     when_then_nodes: Vec<WhenThen>,
-    expr_nodes: Vec<SqlNode>,
+    expr_nodes: Vec<FlatNode>,
     expr_identifier: Vec<expr::Identifier>,
     expr_literal: Vec<expr::Literal>,
     expr_binary_op: Vec<expr::BinaryOp>,
     expr_case: Vec<expr::Case>,
     expr_cast: Vec<expr::Cast>,
     file_nodes: Vec<File>,
-    identifier_seq: Vec<SqlStr>,
-    string_seq: Vec<SqlStr>,
+    identifier_seq: Vec<FlatStr>,
+    string_seq: Vec<FlatStr>,
     span_seq: Vec<SpanRef>,
     when_then_seq: Vec<WhenThenRef>,
     expr_seq: Vec<ExprRef>,
@@ -1680,10 +1680,10 @@ impl TreeBuilder {
     }
 
     /// A string into the tree's UTF-8 blob.
-    pub fn push_str(&mut self, s: &str) -> SqlStr {
+    pub fn push_str(&mut self, s: &str) -> FlatStr {
         let off = self.strings.len() as u32;
         self.strings.extend_from_slice(s.as_bytes());
-        SqlStr { off, len: s.len() as u32 }
+        FlatStr { off, len: s.len() as u32 }
     }
 
     /// Push a `code_location` node.
@@ -1705,7 +1705,7 @@ impl TreeBuilder {
         let payload = self.data_type_int.len() as u32;
         self.data_type_int.push(r);
         let i = self.data_type_nodes.len() as u32;
-        self.data_type_nodes.push(SqlNode {
+        self.data_type_nodes.push(FlatNode {
             tag: DataTypeTag::Int as u16,
             _pad: 0,
             payload,
@@ -1718,7 +1718,7 @@ impl TreeBuilder {
         let payload = self.data_type_bool.len() as u32;
         self.data_type_bool.push(r);
         let i = self.data_type_nodes.len() as u32;
-        self.data_type_nodes.push(SqlNode {
+        self.data_type_nodes.push(FlatNode {
             tag: DataTypeTag::Bool as u16,
             _pad: 0,
             payload,
@@ -1731,7 +1731,7 @@ impl TreeBuilder {
         let payload = self.literal_number.len() as u32;
         self.literal_number.push(r);
         let i = self.literal_nodes.len() as u32;
-        self.literal_nodes.push(SqlNode {
+        self.literal_nodes.push(FlatNode {
             tag: LiteralTag::Number as u16,
             _pad: 0,
             payload,
@@ -1744,7 +1744,7 @@ impl TreeBuilder {
         let payload = self.literal_string.len() as u32;
         self.literal_string.push(r);
         let i = self.literal_nodes.len() as u32;
-        self.literal_nodes.push(SqlNode {
+        self.literal_nodes.push(FlatNode {
             tag: LiteralTag::String as u16,
             _pad: 0,
             payload,
@@ -1757,7 +1757,7 @@ impl TreeBuilder {
         let payload = self.literal_null.len() as u32;
         self.literal_null.push(r);
         let i = self.literal_nodes.len() as u32;
-        self.literal_nodes.push(SqlNode {
+        self.literal_nodes.push(FlatNode {
             tag: LiteralTag::Null as u16,
             _pad: 0,
             payload,
@@ -1777,7 +1777,7 @@ impl TreeBuilder {
         let payload = self.expr_identifier.len() as u32;
         self.expr_identifier.push(r);
         let i = self.expr_nodes.len() as u32;
-        self.expr_nodes.push(SqlNode {
+        self.expr_nodes.push(FlatNode {
             tag: ExprTag::Identifier as u16,
             _pad: 0,
             payload,
@@ -1790,7 +1790,7 @@ impl TreeBuilder {
         let payload = self.expr_literal.len() as u32;
         self.expr_literal.push(r);
         let i = self.expr_nodes.len() as u32;
-        self.expr_nodes.push(SqlNode {
+        self.expr_nodes.push(FlatNode {
             tag: ExprTag::Literal as u16,
             _pad: 0,
             payload,
@@ -1803,7 +1803,7 @@ impl TreeBuilder {
         let payload = self.expr_binary_op.len() as u32;
         self.expr_binary_op.push(r);
         let i = self.expr_nodes.len() as u32;
-        self.expr_nodes.push(SqlNode {
+        self.expr_nodes.push(FlatNode {
             tag: ExprTag::BinaryOp as u16,
             _pad: 0,
             payload,
@@ -1816,7 +1816,7 @@ impl TreeBuilder {
         let payload = self.expr_case.len() as u32;
         self.expr_case.push(r);
         let i = self.expr_nodes.len() as u32;
-        self.expr_nodes.push(SqlNode {
+        self.expr_nodes.push(FlatNode {
             tag: ExprTag::Case as u16,
             _pad: 0,
             payload,
@@ -1829,7 +1829,7 @@ impl TreeBuilder {
         let payload = self.expr_cast.len() as u32;
         self.expr_cast.push(r);
         let i = self.expr_nodes.len() as u32;
-        self.expr_nodes.push(SqlNode {
+        self.expr_nodes.push(FlatNode {
             tag: ExprTag::Cast as u16,
             _pad: 0,
             payload,
@@ -1845,51 +1845,51 @@ impl TreeBuilder {
     }
 
     /// A sequence of `identifier` into the pool.
-    pub fn push_identifier_seq(&mut self, items: &[SqlStr]) -> SqlSeq {
+    pub fn push_identifier_seq(&mut self, items: &[FlatStr]) -> FlatSeq {
         let off = self.identifier_seq.len() as u32;
         self.identifier_seq.extend_from_slice(items);
-        SqlSeq { off, len: items.len() as u32 }
+        FlatSeq { off, len: items.len() as u32 }
     }
 
     /// A sequence of `string` into the pool.
-    pub fn push_string_seq(&mut self, items: &[SqlStr]) -> SqlSeq {
+    pub fn push_string_seq(&mut self, items: &[FlatStr]) -> FlatSeq {
         let off = self.string_seq.len() as u32;
         self.string_seq.extend_from_slice(items);
-        SqlSeq { off, len: items.len() as u32 }
+        FlatSeq { off, len: items.len() as u32 }
     }
 
     /// A sequence of `span` into the pool.
-    pub fn push_span_seq(&mut self, items: &[SpanRef]) -> SqlSeq {
+    pub fn push_span_seq(&mut self, items: &[SpanRef]) -> FlatSeq {
         let off = self.span_seq.len() as u32;
         self.span_seq.extend_from_slice(items);
-        SqlSeq { off, len: items.len() as u32 }
+        FlatSeq { off, len: items.len() as u32 }
     }
 
     /// A sequence of `when_then` into the pool.
-    pub fn push_when_then_seq(&mut self, items: &[WhenThenRef]) -> SqlSeq {
+    pub fn push_when_then_seq(&mut self, items: &[WhenThenRef]) -> FlatSeq {
         let off = self.when_then_seq.len() as u32;
         self.when_then_seq.extend_from_slice(items);
-        SqlSeq { off, len: items.len() as u32 }
+        FlatSeq { off, len: items.len() as u32 }
     }
 
     /// A sequence of `expr` into the pool.
-    pub fn push_expr_seq(&mut self, items: &[ExprRef]) -> SqlSeq {
+    pub fn push_expr_seq(&mut self, items: &[ExprRef]) -> FlatSeq {
         let off = self.expr_seq.len() as u32;
         self.expr_seq.extend_from_slice(items);
-        SqlSeq { off, len: items.len() as u32 }
+        FlatSeq { off, len: items.len() as u32 }
     }
 
-    /// Freeze the buffers into a host-ready `SqlTree`. The buffers are
+    /// Freeze the buffers into a host-ready `FlatTree`. The buffers are
     /// boxed in place and the header points at them; `release` (called
     /// by the host, or by `Tree`'s Drop) frees everything.
-    pub fn finish(self, root: FileRef) -> *mut SqlTree {
-        let mut sections: Vec<SqlSection> = Vec::new();
+    pub fn finish(self, root: FileRef) -> *mut FlatTree {
+        let mut sections: Vec<FlatSection> = Vec::new();
         macro_rules! sec {
             ($v:expr, $elem:ty) => {{
                 let b = $v.into_boxed_slice();
                 let len = b.len() as u32;
                 let ptr = Box::into_raw(b) as *mut u8;
-                sections.push(SqlSection {
+                sections.push(FlatSection {
                     ptr,
                     len,
                     stride: std::mem::size_of::<$elem>() as u32,
@@ -1899,33 +1899,33 @@ impl TreeBuilder {
         sec!(self.strings, u8);
         sec!(self.code_location_nodes, CodeLocation);
         sec!(self.span_nodes, Span);
-        sec!(self.data_type_nodes, SqlNode);
+        sec!(self.data_type_nodes, FlatNode);
         sec!(self.data_type_int, data_type::Int);
         sec!(self.data_type_bool, data_type::Bool);
-        sec!(self.literal_nodes, SqlNode);
+        sec!(self.literal_nodes, FlatNode);
         sec!(self.literal_number, literal::Number);
         sec!(self.literal_string, literal::String);
         sec!(self.literal_null, literal::Null);
         sec!(self.when_then_nodes, WhenThen);
-        sec!(self.expr_nodes, SqlNode);
+        sec!(self.expr_nodes, FlatNode);
         sec!(self.expr_identifier, expr::Identifier);
         sec!(self.expr_literal, expr::Literal);
         sec!(self.expr_binary_op, expr::BinaryOp);
         sec!(self.expr_case, expr::Case);
         sec!(self.expr_cast, expr::Cast);
         sec!(self.file_nodes, File);
-        sec!(self.identifier_seq, SqlStr);
-        sec!(self.string_seq, SqlStr);
+        sec!(self.identifier_seq, FlatStr);
+        sec!(self.string_seq, FlatStr);
         sec!(self.span_seq, SpanRef);
         sec!(self.when_then_seq, WhenThenRef);
         sec!(self.expr_seq, ExprRef);
         let sections = Box::into_raw(sections.into_boxed_slice());
-        let tree = Box::new(SqlTree {
+        let tree = Box::new(FlatTree {
             abi_version: ABI_VERSION,
             schema_hash: SCHEMA_HASH,
             release,
             schema: &SCHEMA,
-            sections: sections as *mut SqlSection,
+            sections: sections as *mut FlatSection,
             section_count: 23,
             root_index: root.0,
         });
@@ -1943,7 +1943,7 @@ impl Default for TreeBuilder {
 /// The tree destructor named by the header: frees the sections (each a
 /// boxed slice of plain data) and the header itself.
 #[cfg(feature = "builder")]
-unsafe extern "C" fn release(tree: *mut SqlTree) {
+unsafe extern "C" fn release(tree: *mut FlatTree) {
     unsafe {
         let tree = Box::from_raw(tree);
         let sections = Box::from_raw(std::ptr::slice_from_raw_parts_mut(
@@ -1971,7 +1971,7 @@ unsafe extern "C" fn release(tree: *mut SqlTree) {
                 }
                 3 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut SqlNode, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut FlatNode, len),
                     ));
                 }
                 4 => {
@@ -1986,7 +1986,7 @@ unsafe extern "C" fn release(tree: *mut SqlTree) {
                 }
                 6 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut SqlNode, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut FlatNode, len),
                     ));
                 }
                 7 => {
@@ -2011,7 +2011,7 @@ unsafe extern "C" fn release(tree: *mut SqlTree) {
                 }
                 11 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut SqlNode, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut FlatNode, len),
                     ));
                 }
                 12 => {
@@ -2046,12 +2046,12 @@ unsafe extern "C" fn release(tree: *mut SqlTree) {
                 }
                 18 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut SqlStr, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut FlatStr, len),
                     ));
                 }
                 19 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut SqlStr, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut FlatStr, len),
                     ));
                 }
                 20 => {
@@ -2202,383 +2202,383 @@ pub fn freeze_stable_layout() -> String {
 // ------------------------------------------------------------------
 
 #[cfg(feature = "builder")]
-static FIELDS_CODELOCATION: &[SqlFieldInfo] = &[
-    SqlFieldInfo {
-        name: SqlName::from_static("lineno"),
+static FIELDS_CODELOCATION: &[FlatFieldInfo] = &[
+    FlatFieldInfo {
+        name: FlatName::from_static("lineno"),
         offset: std::mem::offset_of!(CodeLocation, lineno) as u32,
-        enc: SqlEnc::OptInt as u8,
+        enc: FlatEnc::OptInt as u8,
         type_index: u16::MAX,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("col_offset"),
+    FlatFieldInfo {
+        name: FlatName::from_static("col_offset"),
         offset: std::mem::offset_of!(CodeLocation, col_offset) as u32,
-        enc: SqlEnc::OptInt as u8,
+        enc: FlatEnc::OptInt as u8,
         type_index: u16::MAX,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("index"),
+    FlatFieldInfo {
+        name: FlatName::from_static("index"),
         offset: std::mem::offset_of!(CodeLocation, index) as u32,
-        enc: SqlEnc::OptLong as u8,
+        enc: FlatEnc::OptLong as u8,
         type_index: u16::MAX,
     },
 ];
 
 #[cfg(feature = "builder")]
-static FIELDS_SPAN: &[SqlFieldInfo] = &[
-    SqlFieldInfo {
-        name: SqlName::from_static("start"),
+static FIELDS_SPAN: &[FlatFieldInfo] = &[
+    FlatFieldInfo {
+        name: FlatName::from_static("start"),
         offset: std::mem::offset_of!(Span, start) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 6,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("end"),
+    FlatFieldInfo {
+        name: FlatName::from_static("end"),
         offset: std::mem::offset_of!(Span, end) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 6,
     },
 ];
 
 #[cfg(feature = "builder")]
-static FIELDS_DATA_TYPE_INT: &[SqlFieldInfo] = &[
-    SqlFieldInfo {
-        name: SqlName::from_static("span"),
+static FIELDS_DATA_TYPE_INT: &[FlatFieldInfo] = &[
+    FlatFieldInfo {
+        name: FlatName::from_static("span"),
         offset: std::mem::offset_of!(data_type::Int, span) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 7,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("nullable"),
+    FlatFieldInfo {
+        name: FlatName::from_static("nullable"),
         offset: std::mem::offset_of!(data_type::Int, nullable) as u32,
-        enc: SqlEnc::Bool as u8,
+        enc: FlatEnc::Bool as u8,
         type_index: u16::MAX,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("unsigned"),
+    FlatFieldInfo {
+        name: FlatName::from_static("unsigned"),
         offset: std::mem::offset_of!(data_type::Int, unsigned) as u32,
-        enc: SqlEnc::OptBool as u8,
+        enc: FlatEnc::OptBool as u8,
         type_index: u16::MAX,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("width"),
+    FlatFieldInfo {
+        name: FlatName::from_static("width"),
         offset: std::mem::offset_of!(data_type::Int, width) as u32,
-        enc: SqlEnc::OptByte as u8,
+        enc: FlatEnc::OptByte as u8,
         type_index: u16::MAX,
     },
 ];
 
 #[cfg(feature = "builder")]
-static FIELDS_DATA_TYPE_BOOL: &[SqlFieldInfo] = &[
-    SqlFieldInfo {
-        name: SqlName::from_static("span"),
+static FIELDS_DATA_TYPE_BOOL: &[FlatFieldInfo] = &[
+    FlatFieldInfo {
+        name: FlatName::from_static("span"),
         offset: std::mem::offset_of!(data_type::Bool, span) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 7,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("nullable"),
+    FlatFieldInfo {
+        name: FlatName::from_static("nullable"),
         offset: std::mem::offset_of!(data_type::Bool, nullable) as u32,
-        enc: SqlEnc::Bool as u8,
+        enc: FlatEnc::Bool as u8,
         type_index: u16::MAX,
     },
 ];
 
 #[cfg(feature = "builder")]
-static FIELDS_LITERAL_NUMBER: &[SqlFieldInfo] = &[
-    SqlFieldInfo {
-        name: SqlName::from_static("span"),
+static FIELDS_LITERAL_NUMBER: &[FlatFieldInfo] = &[
+    FlatFieldInfo {
+        name: FlatName::from_static("span"),
         offset: std::mem::offset_of!(literal::Number, span) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 7,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("text"),
+    FlatFieldInfo {
+        name: FlatName::from_static("text"),
         offset: std::mem::offset_of!(literal::Number, text) as u32,
-        enc: SqlEnc::Str as u8,
+        enc: FlatEnc::Str as u8,
         type_index: u16::MAX,
     },
 ];
 
 #[cfg(feature = "builder")]
-static FIELDS_LITERAL_STRING: &[SqlFieldInfo] = &[
-    SqlFieldInfo {
-        name: SqlName::from_static("span"),
+static FIELDS_LITERAL_STRING: &[FlatFieldInfo] = &[
+    FlatFieldInfo {
+        name: FlatName::from_static("span"),
         offset: std::mem::offset_of!(literal::String, span) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 7,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("value"),
+    FlatFieldInfo {
+        name: FlatName::from_static("value"),
         offset: std::mem::offset_of!(literal::String, value) as u32,
-        enc: SqlEnc::Str as u8,
+        enc: FlatEnc::Str as u8,
         type_index: u16::MAX,
     },
 ];
 
 #[cfg(feature = "builder")]
-static FIELDS_LITERAL_NULL: &[SqlFieldInfo] = &[
-    SqlFieldInfo {
-        name: SqlName::from_static("span"),
+static FIELDS_LITERAL_NULL: &[FlatFieldInfo] = &[
+    FlatFieldInfo {
+        name: FlatName::from_static("span"),
         offset: std::mem::offset_of!(literal::Null, span) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 7,
     },
 ];
 
 #[cfg(feature = "builder")]
-static FIELDS_WHENTHEN: &[SqlFieldInfo] = &[
-    SqlFieldInfo {
-        name: SqlName::from_static("when"),
+static FIELDS_WHENTHEN: &[FlatFieldInfo] = &[
+    FlatFieldInfo {
+        name: FlatName::from_static("when"),
         offset: std::mem::offset_of!(WhenThen, when) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 12,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("then"),
+    FlatFieldInfo {
+        name: FlatName::from_static("then"),
         offset: std::mem::offset_of!(WhenThen, then) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 12,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("op"),
+    FlatFieldInfo {
+        name: FlatName::from_static("op"),
         offset: std::mem::offset_of!(WhenThen, op) as u32,
-        enc: SqlEnc::OptSimpleSum as u8,
+        enc: FlatEnc::OptSimpleSum as u8,
         type_index: 8,
     },
 ];
 
 #[cfg(feature = "builder")]
-static FIELDS_EXPR_IDENTIFIER: &[SqlFieldInfo] = &[
-    SqlFieldInfo {
-        name: SqlName::from_static("span"),
+static FIELDS_EXPR_IDENTIFIER: &[FlatFieldInfo] = &[
+    FlatFieldInfo {
+        name: FlatName::from_static("span"),
         offset: std::mem::offset_of!(expr::Identifier, span) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 7,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("parts"),
+    FlatFieldInfo {
+        name: FlatName::from_static("parts"),
         offset: std::mem::offset_of!(expr::Identifier, parts) as u32,
-        enc: SqlEnc::Seq as u8,
+        enc: FlatEnc::Seq as u8,
         type_index: 0,
     },
 ];
 
 #[cfg(feature = "builder")]
-static FIELDS_EXPR_LITERAL: &[SqlFieldInfo] = &[
-    SqlFieldInfo {
-        name: SqlName::from_static("span"),
+static FIELDS_EXPR_LITERAL: &[FlatFieldInfo] = &[
+    FlatFieldInfo {
+        name: FlatName::from_static("span"),
         offset: std::mem::offset_of!(expr::Literal, span) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 7,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("value"),
+    FlatFieldInfo {
+        name: FlatName::from_static("value"),
         offset: std::mem::offset_of!(expr::Literal, value) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 10,
     },
 ];
 
 #[cfg(feature = "builder")]
-static FIELDS_EXPR_BINARYOP: &[SqlFieldInfo] = &[
-    SqlFieldInfo {
-        name: SqlName::from_static("span"),
+static FIELDS_EXPR_BINARYOP: &[FlatFieldInfo] = &[
+    FlatFieldInfo {
+        name: FlatName::from_static("span"),
         offset: std::mem::offset_of!(expr::BinaryOp, span) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 7,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("left"),
+    FlatFieldInfo {
+        name: FlatName::from_static("left"),
         offset: std::mem::offset_of!(expr::BinaryOp, left) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 12,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("op"),
+    FlatFieldInfo {
+        name: FlatName::from_static("op"),
         offset: std::mem::offset_of!(expr::BinaryOp, op) as u32,
-        enc: SqlEnc::SimpleSum as u8,
+        enc: FlatEnc::SimpleSum as u8,
         type_index: 8,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("right"),
+    FlatFieldInfo {
+        name: FlatName::from_static("right"),
         offset: std::mem::offset_of!(expr::BinaryOp, right) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 12,
     },
 ];
 
 #[cfg(feature = "builder")]
-static FIELDS_EXPR_CASE: &[SqlFieldInfo] = &[
-    SqlFieldInfo {
-        name: SqlName::from_static("span"),
+static FIELDS_EXPR_CASE: &[FlatFieldInfo] = &[
+    FlatFieldInfo {
+        name: FlatName::from_static("span"),
         offset: std::mem::offset_of!(expr::Case, span) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 7,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("operand"),
+    FlatFieldInfo {
+        name: FlatName::from_static("operand"),
         offset: std::mem::offset_of!(expr::Case, operand) as u32,
-        enc: SqlEnc::OptNode as u8,
+        enc: FlatEnc::OptNode as u8,
         type_index: 12,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("cases"),
+    FlatFieldInfo {
+        name: FlatName::from_static("cases"),
         offset: std::mem::offset_of!(expr::Case, cases) as u32,
-        enc: SqlEnc::Seq as u8,
+        enc: FlatEnc::Seq as u8,
         type_index: 11,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("else"),
+    FlatFieldInfo {
+        name: FlatName::from_static("else"),
         offset: std::mem::offset_of!(expr::Case, r#else) as u32,
-        enc: SqlEnc::OptNode as u8,
+        enc: FlatEnc::OptNode as u8,
         type_index: 12,
     },
 ];
 
 #[cfg(feature = "builder")]
-static FIELDS_EXPR_CAST: &[SqlFieldInfo] = &[
-    SqlFieldInfo {
-        name: SqlName::from_static("span"),
+static FIELDS_EXPR_CAST: &[FlatFieldInfo] = &[
+    FlatFieldInfo {
+        name: FlatName::from_static("span"),
         offset: std::mem::offset_of!(expr::Cast, span) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 7,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("e"),
+    FlatFieldInfo {
+        name: FlatName::from_static("e"),
         offset: std::mem::offset_of!(expr::Cast, e) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 12,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("to"),
+    FlatFieldInfo {
+        name: FlatName::from_static("to"),
         offset: std::mem::offset_of!(expr::Cast, to) as u32,
-        enc: SqlEnc::Node as u8,
+        enc: FlatEnc::Node as u8,
         type_index: 9,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("notes"),
+    FlatFieldInfo {
+        name: FlatName::from_static("notes"),
         offset: std::mem::offset_of!(expr::Cast, notes) as u32,
-        enc: SqlEnc::Seq as u8,
+        enc: FlatEnc::Seq as u8,
         type_index: 1,
     },
 ];
 
 #[cfg(feature = "builder")]
-static FIELDS_FILE: &[SqlFieldInfo] = &[
-    SqlFieldInfo {
-        name: SqlName::from_static("exprs"),
+static FIELDS_FILE: &[FlatFieldInfo] = &[
+    FlatFieldInfo {
+        name: FlatName::from_static("exprs"),
         offset: std::mem::offset_of!(File, exprs) as u32,
-        enc: SqlEnc::Seq as u8,
+        enc: FlatEnc::Seq as u8,
         type_index: 12,
     },
-    SqlFieldInfo {
-        name: SqlName::from_static("spans"),
+    FlatFieldInfo {
+        name: FlatName::from_static("spans"),
         offset: std::mem::offset_of!(File, spans) as u32,
-        enc: SqlEnc::Seq as u8,
+        enc: FlatEnc::Seq as u8,
         type_index: 7,
     },
 ];
 
 #[cfg(feature = "builder")]
-static CTORS: &[SqlCtorInfo] = &[
-    SqlCtorInfo {
-        name: SqlName::from_static("Add"),
+static CTORS: &[FlatCtorInfo] = &[
+    FlatCtorInfo {
+        name: FlatName::from_static("Add"),
         tag: 0,
         type_index: 8,
         payload_section: -1,
         fields: std::ptr::null(),
         field_count: 0,
     },
-    SqlCtorInfo {
-        name: SqlName::from_static("Sub"),
+    FlatCtorInfo {
+        name: FlatName::from_static("Sub"),
         tag: 1,
         type_index: 8,
         payload_section: -1,
         fields: std::ptr::null(),
         field_count: 0,
     },
-    SqlCtorInfo {
-        name: SqlName::from_static("Eq"),
+    FlatCtorInfo {
+        name: FlatName::from_static("Eq"),
         tag: 2,
         type_index: 8,
         payload_section: -1,
         fields: std::ptr::null(),
         field_count: 0,
     },
-    SqlCtorInfo {
-        name: SqlName::from_static("Int"),
+    FlatCtorInfo {
+        name: FlatName::from_static("Int"),
         tag: 0,
         type_index: 9,
         payload_section: 4,
         fields: FIELDS_DATA_TYPE_INT.as_ptr(),
         field_count: FIELDS_DATA_TYPE_INT.len() as u32,
     },
-    SqlCtorInfo {
-        name: SqlName::from_static("Bool"),
+    FlatCtorInfo {
+        name: FlatName::from_static("Bool"),
         tag: 1,
         type_index: 9,
         payload_section: 5,
         fields: FIELDS_DATA_TYPE_BOOL.as_ptr(),
         field_count: FIELDS_DATA_TYPE_BOOL.len() as u32,
     },
-    SqlCtorInfo {
-        name: SqlName::from_static("Number"),
+    FlatCtorInfo {
+        name: FlatName::from_static("Number"),
         tag: 0,
         type_index: 10,
         payload_section: 7,
         fields: FIELDS_LITERAL_NUMBER.as_ptr(),
         field_count: FIELDS_LITERAL_NUMBER.len() as u32,
     },
-    SqlCtorInfo {
-        name: SqlName::from_static("String"),
+    FlatCtorInfo {
+        name: FlatName::from_static("String"),
         tag: 1,
         type_index: 10,
         payload_section: 8,
         fields: FIELDS_LITERAL_STRING.as_ptr(),
         field_count: FIELDS_LITERAL_STRING.len() as u32,
     },
-    SqlCtorInfo {
-        name: SqlName::from_static("Null"),
+    FlatCtorInfo {
+        name: FlatName::from_static("Null"),
         tag: 2,
         type_index: 10,
         payload_section: 9,
         fields: FIELDS_LITERAL_NULL.as_ptr(),
         field_count: FIELDS_LITERAL_NULL.len() as u32,
     },
-    SqlCtorInfo {
-        name: SqlName::from_static("Identifier"),
+    FlatCtorInfo {
+        name: FlatName::from_static("Identifier"),
         tag: 0,
         type_index: 12,
         payload_section: 12,
         fields: FIELDS_EXPR_IDENTIFIER.as_ptr(),
         field_count: FIELDS_EXPR_IDENTIFIER.len() as u32,
     },
-    SqlCtorInfo {
-        name: SqlName::from_static("Literal"),
+    FlatCtorInfo {
+        name: FlatName::from_static("Literal"),
         tag: 1,
         type_index: 12,
         payload_section: 13,
         fields: FIELDS_EXPR_LITERAL.as_ptr(),
         field_count: FIELDS_EXPR_LITERAL.len() as u32,
     },
-    SqlCtorInfo {
-        name: SqlName::from_static("BinaryOp"),
+    FlatCtorInfo {
+        name: FlatName::from_static("BinaryOp"),
         tag: 2,
         type_index: 12,
         payload_section: 14,
         fields: FIELDS_EXPR_BINARYOP.as_ptr(),
         field_count: FIELDS_EXPR_BINARYOP.len() as u32,
     },
-    SqlCtorInfo {
-        name: SqlName::from_static("Case"),
+    FlatCtorInfo {
+        name: FlatName::from_static("Case"),
         tag: 3,
         type_index: 12,
         payload_section: 15,
         fields: FIELDS_EXPR_CASE.as_ptr(),
         field_count: FIELDS_EXPR_CASE.len() as u32,
     },
-    SqlCtorInfo {
-        name: SqlName::from_static("Cast"),
+    FlatCtorInfo {
+        name: FlatName::from_static("Cast"),
         tag: 4,
         type_index: 12,
         payload_section: 16,
@@ -2588,11 +2588,11 @@ static CTORS: &[SqlCtorInfo] = &[
 ];
 
 #[cfg(feature = "builder")]
-static TYPES: &[SqlTypeInfo] = &[
-    SqlTypeInfo {
-        name: SqlName::from_static("identifier"),
-        kind: SqlTypeKind::Builtin as u8,
-        enc: SqlEnc::Str as u8,
+static TYPES: &[FlatTypeInfo] = &[
+    FlatTypeInfo {
+        name: FlatName::from_static("identifier"),
+        kind: FlatTypeKind::Builtin as u8,
+        enc: FlatEnc::Str as u8,
         node_section: -1,
         seq_section: 18,
         ctor_off: 0,
@@ -2600,10 +2600,10 @@ static TYPES: &[SqlTypeInfo] = &[
         fields: std::ptr::null(),
         field_count: 0,
     },
-    SqlTypeInfo {
-        name: SqlName::from_static("string"),
-        kind: SqlTypeKind::Builtin as u8,
-        enc: SqlEnc::Str as u8,
+    FlatTypeInfo {
+        name: FlatName::from_static("string"),
+        kind: FlatTypeKind::Builtin as u8,
+        enc: FlatEnc::Str as u8,
         node_section: -1,
         seq_section: 19,
         ctor_off: 0,
@@ -2611,10 +2611,10 @@ static TYPES: &[SqlTypeInfo] = &[
         fields: std::ptr::null(),
         field_count: 0,
     },
-    SqlTypeInfo {
-        name: SqlName::from_static("byte"),
-        kind: SqlTypeKind::Builtin as u8,
-        enc: SqlEnc::Byte as u8,
+    FlatTypeInfo {
+        name: FlatName::from_static("byte"),
+        kind: FlatTypeKind::Builtin as u8,
+        enc: FlatEnc::Byte as u8,
         node_section: -1,
         seq_section: -1,
         ctor_off: 0,
@@ -2622,10 +2622,10 @@ static TYPES: &[SqlTypeInfo] = &[
         fields: std::ptr::null(),
         field_count: 0,
     },
-    SqlTypeInfo {
-        name: SqlName::from_static("int"),
-        kind: SqlTypeKind::Builtin as u8,
-        enc: SqlEnc::Int as u8,
+    FlatTypeInfo {
+        name: FlatName::from_static("int"),
+        kind: FlatTypeKind::Builtin as u8,
+        enc: FlatEnc::Int as u8,
         node_section: -1,
         seq_section: -1,
         ctor_off: 0,
@@ -2633,10 +2633,10 @@ static TYPES: &[SqlTypeInfo] = &[
         fields: std::ptr::null(),
         field_count: 0,
     },
-    SqlTypeInfo {
-        name: SqlName::from_static("long"),
-        kind: SqlTypeKind::Builtin as u8,
-        enc: SqlEnc::Long as u8,
+    FlatTypeInfo {
+        name: FlatName::from_static("long"),
+        kind: FlatTypeKind::Builtin as u8,
+        enc: FlatEnc::Long as u8,
         node_section: -1,
         seq_section: -1,
         ctor_off: 0,
@@ -2644,10 +2644,10 @@ static TYPES: &[SqlTypeInfo] = &[
         fields: std::ptr::null(),
         field_count: 0,
     },
-    SqlTypeInfo {
-        name: SqlName::from_static("bool"),
-        kind: SqlTypeKind::Builtin as u8,
-        enc: SqlEnc::Bool as u8,
+    FlatTypeInfo {
+        name: FlatName::from_static("bool"),
+        kind: FlatTypeKind::Builtin as u8,
+        enc: FlatEnc::Bool as u8,
         node_section: -1,
         seq_section: -1,
         ctor_off: 0,
@@ -2655,10 +2655,10 @@ static TYPES: &[SqlTypeInfo] = &[
         fields: std::ptr::null(),
         field_count: 0,
     },
-    SqlTypeInfo {
-        name: SqlName::from_static("code_location"),
-        kind: SqlTypeKind::Product as u8,
-        enc: SqlEnc::Node as u8,
+    FlatTypeInfo {
+        name: FlatName::from_static("code_location"),
+        kind: FlatTypeKind::Product as u8,
+        enc: FlatEnc::Node as u8,
         node_section: 1,
         seq_section: -1,
         ctor_off: 0,
@@ -2666,10 +2666,10 @@ static TYPES: &[SqlTypeInfo] = &[
         fields: FIELDS_CODELOCATION.as_ptr(),
         field_count: FIELDS_CODELOCATION.len() as u32,
     },
-    SqlTypeInfo {
-        name: SqlName::from_static("span"),
-        kind: SqlTypeKind::Product as u8,
-        enc: SqlEnc::Node as u8,
+    FlatTypeInfo {
+        name: FlatName::from_static("span"),
+        kind: FlatTypeKind::Product as u8,
+        enc: FlatEnc::Node as u8,
         node_section: 2,
         seq_section: 20,
         ctor_off: 0,
@@ -2677,10 +2677,10 @@ static TYPES: &[SqlTypeInfo] = &[
         fields: FIELDS_SPAN.as_ptr(),
         field_count: FIELDS_SPAN.len() as u32,
     },
-    SqlTypeInfo {
-        name: SqlName::from_static("bin_op"),
-        kind: SqlTypeKind::SimpleSum as u8,
-        enc: SqlEnc::SimpleSum as u8,
+    FlatTypeInfo {
+        name: FlatName::from_static("bin_op"),
+        kind: FlatTypeKind::SimpleSum as u8,
+        enc: FlatEnc::SimpleSum as u8,
         node_section: -1,
         seq_section: -1,
         ctor_off: 0,
@@ -2688,10 +2688,10 @@ static TYPES: &[SqlTypeInfo] = &[
         fields: std::ptr::null(),
         field_count: 0,
     },
-    SqlTypeInfo {
-        name: SqlName::from_static("data_type"),
-        kind: SqlTypeKind::Sum as u8,
-        enc: SqlEnc::Node as u8,
+    FlatTypeInfo {
+        name: FlatName::from_static("data_type"),
+        kind: FlatTypeKind::Sum as u8,
+        enc: FlatEnc::Node as u8,
         node_section: 3,
         seq_section: -1,
         ctor_off: 3,
@@ -2699,10 +2699,10 @@ static TYPES: &[SqlTypeInfo] = &[
         fields: std::ptr::null(),
         field_count: 0,
     },
-    SqlTypeInfo {
-        name: SqlName::from_static("literal"),
-        kind: SqlTypeKind::Sum as u8,
-        enc: SqlEnc::Node as u8,
+    FlatTypeInfo {
+        name: FlatName::from_static("literal"),
+        kind: FlatTypeKind::Sum as u8,
+        enc: FlatEnc::Node as u8,
         node_section: 6,
         seq_section: -1,
         ctor_off: 5,
@@ -2710,10 +2710,10 @@ static TYPES: &[SqlTypeInfo] = &[
         fields: std::ptr::null(),
         field_count: 0,
     },
-    SqlTypeInfo {
-        name: SqlName::from_static("when_then"),
-        kind: SqlTypeKind::Product as u8,
-        enc: SqlEnc::Node as u8,
+    FlatTypeInfo {
+        name: FlatName::from_static("when_then"),
+        kind: FlatTypeKind::Product as u8,
+        enc: FlatEnc::Node as u8,
         node_section: 10,
         seq_section: 21,
         ctor_off: 0,
@@ -2721,10 +2721,10 @@ static TYPES: &[SqlTypeInfo] = &[
         fields: FIELDS_WHENTHEN.as_ptr(),
         field_count: FIELDS_WHENTHEN.len() as u32,
     },
-    SqlTypeInfo {
-        name: SqlName::from_static("expr"),
-        kind: SqlTypeKind::Sum as u8,
-        enc: SqlEnc::Node as u8,
+    FlatTypeInfo {
+        name: FlatName::from_static("expr"),
+        kind: FlatTypeKind::Sum as u8,
+        enc: FlatEnc::Node as u8,
         node_section: 11,
         seq_section: 22,
         ctor_off: 8,
@@ -2732,10 +2732,10 @@ static TYPES: &[SqlTypeInfo] = &[
         fields: std::ptr::null(),
         field_count: 0,
     },
-    SqlTypeInfo {
-        name: SqlName::from_static("file"),
-        kind: SqlTypeKind::Product as u8,
-        enc: SqlEnc::Node as u8,
+    FlatTypeInfo {
+        name: FlatName::from_static("file"),
+        kind: FlatTypeKind::Product as u8,
+        enc: FlatEnc::Node as u8,
         node_section: 17,
         seq_section: -1,
         ctor_off: 0,
@@ -2747,7 +2747,7 @@ static TYPES: &[SqlTypeInfo] = &[
 
 /// The schema of the sql.asdl this build was generated from.
 #[cfg(feature = "builder")]
-pub static SCHEMA: SqlSchema = SqlSchema {
+pub static SCHEMA: FlatSchema = FlatSchema {
     abi_version: ABI_VERSION,
     schema_hash: SCHEMA_HASH,
     types: TYPES.as_ptr(),

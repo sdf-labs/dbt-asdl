@@ -250,6 +250,10 @@ module Edge {
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
 
+        assert!(
+            !flat.contains("Sql"),
+            "the flat target must not mention Sql"
+        );
         insta::assert_snapshot!("mini_sql_flat", flat);
         insta::assert_snapshot!("mini_sql_convert", convert);
     }

@@ -29,13 +29,13 @@ pub const SECTION_STRINGS: u32 = 0;
 /// `off == NONE_U32` is None; an empty string is `{0, 0}`, distinct from None.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SqlStr {
+pub struct FlatStr {
     pub off: u32,
     pub len: u32,
 }
 
-impl SqlStr {
-    pub const NONE: Self = SqlStr { off: NONE_U32, len: 0 };
+impl FlatStr {
+    pub const NONE: Self = FlatStr { off: NONE_U32, len: 0 };
 
     pub fn is_none(self) -> bool {
         self.off == NONE_U32
@@ -46,7 +46,7 @@ impl SqlStr {
 /// section.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SqlSeq {
+pub struct FlatSeq {
     pub off: u32,
     pub len: u32,
 }
@@ -129,7 +129,7 @@ impl From<Option<bool>> for OptBool {
 /// constructor of an attribute-less sum).
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct SqlNode {
+pub struct FlatNode {
     pub tag: u16,
     pub _pad: u16,
     pub payload: u32,
@@ -138,7 +138,7 @@ pub struct SqlNode {
 // ---------------------------------------------------------------------------
 // The descriptor types: the dialect library's metadata and the schema-as-data
 // the host's introspection reads. `abi_version` is the first field of both
-// SqlDialect and SqlTree, readable without knowing the rest of the layout.
+// FlatDialect and FlatTree, readable without knowing the rest of the layout.
 // ---------------------------------------------------------------------------
 
 /// A name (or any static string) held by a descriptor: a pointer into the
@@ -146,14 +146,14 @@ pub struct SqlNode {
 /// pointers never cross the boundary.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct SqlName {
+pub struct FlatName {
     pub ptr: *const u8,
     pub len: u32,
 }
 
-impl SqlName {
+impl FlatName {
     pub const fn from_static(s: &'static str) -> Self {
-        SqlName { ptr: s.as_ptr(), len: s.len() as u32 }
+        FlatName { ptr: s.as_ptr(), len: s.len() as u32 }
     }
 
     /// The name as a str. Safe to call on any descriptor the handshake
@@ -167,18 +167,18 @@ impl SqlName {
 }
 
 /// The field encodings: how one field's bytes at `record + offset` read.
-/// Stored as `u8` in the tables and converted through [`SqlEnc::from_u8`]
+/// Stored as `u8` in the tables and converted through [`FlatEnc::from_u8`]
 /// so an unrecognized value is data, not UB.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SqlEnc {
+pub enum FlatEnc {
     Bool = 0,
     Byte = 1,
     Int = 2,
     Long = 3,
     /// A `u8` discriminant of the simple sum `type_index`.
     SimpleSum = 4,
-    /// A `SqlStr`.
+    /// A `FlatStr`.
     Str = 5,
     /// A `u32` node index of type `type_index`.
     Node = 6,
@@ -188,41 +188,41 @@ pub enum SqlEnc {
     OptLong = 10,
     /// A `u8` discriminant, `NONE_U8` for None.
     OptSimpleSum = 11,
-    /// A `SqlStr`, `off == NONE_U32` for None.
+    /// A `FlatStr`, `off == NONE_U32` for None.
     OptStr = 12,
     /// A `u32` node index of type `type_index`, `NONE_U32` for None.
     OptNode = 13,
-    /// A `SqlSeq` of the element type `type_index`.
+    /// A `FlatSeq` of the element type `type_index`.
     Seq = 14,
 }
 
-impl SqlEnc {
-    pub fn from_u8(v: u8) -> Option<SqlEnc> {
+impl FlatEnc {
+    pub fn from_u8(v: u8) -> Option<FlatEnc> {
         Some(match v {
-            0 => SqlEnc::Bool,
-            1 => SqlEnc::Byte,
-            2 => SqlEnc::Int,
-            3 => SqlEnc::Long,
-            4 => SqlEnc::SimpleSum,
-            5 => SqlEnc::Str,
-            6 => SqlEnc::Node,
-            7 => SqlEnc::OptBool,
-            8 => SqlEnc::OptByte,
-            9 => SqlEnc::OptInt,
-            10 => SqlEnc::OptLong,
-            11 => SqlEnc::OptSimpleSum,
-            12 => SqlEnc::OptStr,
-            13 => SqlEnc::OptNode,
-            14 => SqlEnc::Seq,
+            0 => FlatEnc::Bool,
+            1 => FlatEnc::Byte,
+            2 => FlatEnc::Int,
+            3 => FlatEnc::Long,
+            4 => FlatEnc::SimpleSum,
+            5 => FlatEnc::Str,
+            6 => FlatEnc::Node,
+            7 => FlatEnc::OptBool,
+            8 => FlatEnc::OptByte,
+            9 => FlatEnc::OptInt,
+            10 => FlatEnc::OptLong,
+            11 => FlatEnc::OptSimpleSum,
+            12 => FlatEnc::OptStr,
+            13 => FlatEnc::OptNode,
+            14 => FlatEnc::Seq,
             _ => return None,
         })
     }
 }
 
-/// The kind of a schema type, stored as `u8` like [`SqlEnc`].
+/// The kind of a schema type, stored as `u8` like [`FlatEnc`].
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SqlTypeKind {
+pub enum FlatTypeKind {
     /// A builtin scalar or text type: `bool`, `byte`, `int`, `long`,
     /// `identifier`, `string`.
     Builtin = 0,
@@ -234,13 +234,13 @@ pub enum SqlTypeKind {
     Sum = 3,
 }
 
-impl SqlTypeKind {
-    pub fn from_u8(v: u8) -> Option<SqlTypeKind> {
+impl FlatTypeKind {
+    pub fn from_u8(v: u8) -> Option<FlatTypeKind> {
         Some(match v {
-            0 => SqlTypeKind::Builtin,
-            1 => SqlTypeKind::SimpleSum,
-            2 => SqlTypeKind::Product,
-            3 => SqlTypeKind::Sum,
+            0 => FlatTypeKind::Builtin,
+            1 => FlatTypeKind::SimpleSum,
+            2 => FlatTypeKind::Product,
+            3 => FlatTypeKind::Sum,
             _ => return None,
         })
     }
@@ -249,11 +249,11 @@ impl SqlTypeKind {
 /// One field of a constructor payload or product record.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct SqlFieldInfo {
-    pub name: SqlName,
+pub struct FlatFieldInfo {
+    pub name: FlatName,
     /// Byte offset of the field within its record.
     pub offset: u32,
-    /// A `SqlEnc` value.
+    /// A `FlatEnc` value.
     pub enc: u8,
     /// The referenced/element type, for `SimpleSum`/`Node`/`OptNode`/`Seq`/
     /// `OptSimpleSum` encodings; `u16::MAX` otherwise.
@@ -263,26 +263,26 @@ pub struct SqlFieldInfo {
 /// One constructor of a sum (compound or simple).
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct SqlCtorInfo {
-    pub name: SqlName,
+pub struct FlatCtorInfo {
+    pub name: FlatName,
     /// The tag value within its sum.
     pub tag: u16,
     /// The owning sum's index in the type table.
     pub type_index: u16,
     /// The section holding this constructor's payload records, or -1.
     pub payload_section: i32,
-    pub fields: *const SqlFieldInfo,
+    pub fields: *const FlatFieldInfo,
     pub field_count: u32,
 }
 
 /// One type of the schema.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct SqlTypeInfo {
-    pub name: SqlName,
-    /// A `SqlTypeKind` value.
+pub struct FlatTypeInfo {
+    pub name: FlatName,
+    /// A `FlatTypeKind` value.
     pub kind: u8,
-    /// The `SqlEnc` of a value of this type when it appears inline or as a
+    /// The `FlatEnc` of a value of this type when it appears inline or as a
     /// sequence element (`Node` for products and compound sums, `Str` for
     /// `identifier`/`string`, the scalar encodings for the rest).
     pub enc: u8,
@@ -297,7 +297,7 @@ pub struct SqlTypeInfo {
     pub ctor_off: u32,
     pub ctor_count: u32,
     /// For products: the product's fields.
-    pub fields: *const SqlFieldInfo,
+    pub fields: *const FlatFieldInfo,
     pub field_count: u32,
 }
 
@@ -305,12 +305,12 @@ pub struct SqlTypeInfo {
 /// inside the library. The host reads it through this layout; identity is
 /// by name, resolved at run time, never by hardcoded index.
 #[repr(C)]
-pub struct SqlSchema {
+pub struct FlatSchema {
     pub abi_version: u32,
     pub schema_hash: u64,
-    pub types: *const SqlTypeInfo,
+    pub types: *const FlatTypeInfo,
     pub type_count: u32,
-    pub ctors: *const SqlCtorInfo,
+    pub ctors: *const FlatCtorInfo,
     pub ctor_count: u32,
     /// The type index of the root (`file`).
     pub root_type: u32,
@@ -319,7 +319,7 @@ pub struct SqlSchema {
 /// One section of a tree: a typed array the library owns.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct SqlSection {
+pub struct FlatSection {
     pub ptr: *mut u8,
     /// Element count.
     pub len: u32,
@@ -332,13 +332,13 @@ pub struct SqlSection {
 /// trees from N dialect libraries can coexist without the host tracking
 /// which library owns what.
 #[repr(C)]
-pub struct SqlTree {
+pub struct FlatTree {
     pub abi_version: u32,
     pub schema_hash: u64,
     /// Library-side destructor: frees the tree and every section.
-    pub release: unsafe extern "C" fn(*mut SqlTree),
-    pub schema: *const SqlSchema,
-    pub sections: *mut SqlSection,
+    pub release: unsafe extern "C" fn(*mut FlatTree),
+    pub schema: *const FlatSchema,
+    pub sections: *mut FlatSection,
     pub section_count: u32,
     /// The root node's index in the schema's `root_type` section.
     pub root_index: u32,
@@ -346,36 +346,36 @@ pub struct SqlTree {
 
 /// A loaded dialect library's descriptor: metadata + entry points.
 #[repr(C)]
-pub struct SqlDialect {
+pub struct FlatDialect {
     pub abi_version: u32,
     pub schema_hash: u64,
-    pub name: SqlName,
-    pub dialect_version: SqlName,
-    pub schema: *const SqlSchema,
-    pub parse: SqlParseFn,
+    pub name: FlatName,
+    pub dialect_version: FlatName,
+    pub schema: *const FlatSchema,
+    pub parse: FlatParseFn,
 }
 
 /// The parse entry point. Reads `src[..src_len]` synchronously. Returns the
 /// tree, or null on error with up to `err_buf_cap` bytes of message written
 /// to `err_buf` and the message length to `err_len`. `*err_len` is 0 on
 /// success. No memory changes hands: the caller provides the error buffer.
-pub type SqlParseFn = unsafe extern "C" fn(
+pub type FlatParseFn = unsafe extern "C" fn(
     src: *const u8,
     src_len: usize,
     err_buf: *mut u8,
     err_buf_cap: usize,
     err_len: *mut usize,
-) -> *mut SqlTree;
+) -> *mut FlatTree;
 
 // The descriptor tables are static rodata shared across threads; the raw
 // pointers inside point at other statics of the same library, which is
 // never unloaded (the load-once policy), so the shared references are sound.
-unsafe impl Sync for SqlName {}
-unsafe impl Sync for SqlFieldInfo {}
-unsafe impl Sync for SqlCtorInfo {}
-unsafe impl Sync for SqlTypeInfo {}
-unsafe impl Sync for SqlSchema {}
-unsafe impl Sync for SqlDialect {}
+unsafe impl Sync for FlatName {}
+unsafe impl Sync for FlatFieldInfo {}
+unsafe impl Sync for FlatCtorInfo {}
+unsafe impl Sync for FlatTypeInfo {}
+unsafe impl Sync for FlatSchema {}
+unsafe impl Sync for FlatDialect {}
 
 // ---------------------------------------------------------------------------
 // Host-side introspection
@@ -415,7 +415,7 @@ impl std::error::Error for AbiError {}
 /// `schema` must be the descriptor of a dialect library whose
 /// `abi_version` this host supports; the tables are read in place from the
 /// library's memory.
-pub unsafe fn validate_schema(schema: &SqlSchema) -> Result<(), String> {
+pub unsafe fn validate_schema(schema: &FlatSchema) -> Result<(), String> {
     if !(ABI_VERSION_MIN..=ABI_VERSION).contains(&schema.abi_version) {
         return Err(format!(
             "schema abi_version {} outside the supported range {ABI_VERSION_MIN}..={ABI_VERSION}",
@@ -435,16 +435,16 @@ pub unsafe fn validate_schema(schema: &SqlSchema) -> Result<(), String> {
     let ctors = unsafe { table(schema.ctors, schema.ctor_count) };
     for (i, t) in types.iter().enumerate() {
         let name = t.name.as_str();
-        let kind = SqlTypeKind::from_u8(t.kind)
+        let kind = FlatTypeKind::from_u8(t.kind)
             .ok_or_else(|| format!("type {name}: unknown kind {}", t.kind))?;
-        let enc = SqlEnc::from_u8(t.enc)
+        let enc = FlatEnc::from_u8(t.enc)
             .ok_or_else(|| format!("type {name}: unknown encoding {}", t.enc))?;
         let enc_ok = match (kind, enc) {
-            (SqlTypeKind::Product | SqlTypeKind::Sum, SqlEnc::Node) => true,
-            (SqlTypeKind::SimpleSum, SqlEnc::SimpleSum) => true,
+            (FlatTypeKind::Product | FlatTypeKind::Sum, FlatEnc::Node) => true,
+            (FlatTypeKind::SimpleSum, FlatEnc::SimpleSum) => true,
             (
-                SqlTypeKind::Builtin,
-                SqlEnc::Bool | SqlEnc::Byte | SqlEnc::Int | SqlEnc::Long | SqlEnc::Str,
+                FlatTypeKind::Builtin,
+                FlatEnc::Bool | FlatEnc::Byte | FlatEnc::Int | FlatEnc::Long | FlatEnc::Str,
             ) => true,
             _ => false,
         };
@@ -454,10 +454,10 @@ pub unsafe fn validate_schema(schema: &SqlSchema) -> Result<(), String> {
         if t.node_section < -1 || t.seq_section < -1 {
             return Err(format!("type {name}: section index below -1"));
         }
-        if kind == SqlTypeKind::Product {
+        if kind == FlatTypeKind::Product {
             validate_field_table(name, t.fields, t.field_count, schema.type_count)?;
         }
-        if kind == SqlTypeKind::SimpleSum || kind == SqlTypeKind::Sum {
+        if kind == FlatTypeKind::SimpleSum || kind == FlatTypeKind::Sum {
             if t.ctor_off + t.ctor_count > schema.ctor_count {
                 return Err(format!("type {name}: constructor range out of bounds"));
             }
@@ -502,7 +502,7 @@ unsafe fn table<'a, T>(ptr: *const T, len: u32) -> &'a [T] {
 /// real one.
 fn validate_field_table(
     owner: &str,
-    fields: *const SqlFieldInfo,
+    fields: *const FlatFieldInfo,
     field_count: u32,
     type_count: u32,
 ) -> Result<(), String> {
@@ -512,15 +512,15 @@ fn validate_field_table(
     let fields = unsafe { table(fields, field_count) };
     for f in fields {
         let fname = f.name.as_str();
-        let enc = SqlEnc::from_u8(f.enc)
+        let enc = FlatEnc::from_u8(f.enc)
             .ok_or_else(|| format!("{owner}.{fname}: unknown encoding {}", f.enc))?;
         let references_type = matches!(
             enc,
-            SqlEnc::SimpleSum
-                | SqlEnc::Node
-                | SqlEnc::OptSimpleSum
-                | SqlEnc::OptNode
-                | SqlEnc::Seq
+            FlatEnc::SimpleSum
+                | FlatEnc::Node
+                | FlatEnc::OptSimpleSum
+                | FlatEnc::OptNode
+                | FlatEnc::Seq
         );
         if references_type && (f.type_index as u32) >= type_count {
             return Err(format!(
@@ -535,7 +535,7 @@ fn validate_field_table(
 /// A library-owned flat tree under host management: walks in place, frees
 /// through the header's `release` on drop.
 pub struct Tree {
-    raw: *mut SqlTree,
+    raw: *mut FlatTree,
 }
 
 impl Tree {
@@ -544,17 +544,17 @@ impl Tree {
     /// through its own `release`.
     ///
     /// The version handshake is the loader's job, done once per library on
-    /// its `SqlDialect` descriptor; typed projections are not gated beyond
+    /// its `FlatDialect` descriptor; typed projections are not gated beyond
     /// that (strict-only). The checks here are the per-tree invariants that
     /// keep the handshake sound afterwards: a host may hold trees from
     /// several libraries built with different versions, and a `*mut
-    /// SqlTree` does not say which library minted it, so adoption re-reads
+    /// FlatTree` does not say which library minted it, so adoption re-reads
     /// the header (three scalar comparisons).
     ///
     /// # Safety
-    /// `raw` must be a valid `*mut SqlTree` produced by a library whose
+    /// `raw` must be a valid `*mut FlatTree` produced by a library whose
     /// schema lies within this host's supported ABI range.
-    pub unsafe fn from_raw(raw: *mut SqlTree) -> Result<Tree, AbiError> {
+    pub unsafe fn from_raw(raw: *mut FlatTree) -> Result<Tree, AbiError> {
         if raw.is_null() {
             return Err(AbiError::NullTree);
         }
@@ -580,21 +580,21 @@ impl Tree {
         unsafe { (*self.raw).schema_hash }
     }
 
-    fn schema(&self) -> &SqlSchema {
+    fn schema(&self) -> &FlatSchema {
         unsafe { &*(*self.raw).schema }
     }
 
-    fn types(&self) -> &[SqlTypeInfo] {
+    fn types(&self) -> &[FlatTypeInfo] {
         let s = self.schema();
         unsafe { table(s.types, s.type_count) }
     }
 
-    fn ctors(&self) -> &[SqlCtorInfo] {
+    fn ctors(&self) -> &[FlatCtorInfo] {
         let s = self.schema();
         unsafe { table(s.ctors, s.ctor_count) }
     }
 
-    fn type_info(&self, ty: u16) -> &SqlTypeInfo {
+    fn type_info(&self, ty: u16) -> &FlatTypeInfo {
         &self.types()[ty as usize]
     }
 
@@ -640,7 +640,7 @@ impl Tree {
         (tag as u32).lt(&t.ctor_count).then(|| ctor.name.as_str())
     }
 
-    fn str_at(&self, s: SqlStr) -> &str {
+    fn str_at(&self, s: FlatStr) -> &str {
         let (base, _) = self.section(SECTION_STRINGS as i32);
         unsafe {
             std::str::from_utf8_unchecked(std::slice::from_raw_parts(
@@ -653,12 +653,12 @@ impl Tree {
     /// The node's constructor tag within its sum, for typed projections.
     pub(crate) fn sum_tag(&self, ty: u16, index: u32) -> Option<u16> {
         let t = self.type_info(ty);
-        if SqlTypeKind::from_u8(t.kind) != Some(SqlTypeKind::Sum) || t.node_section < 0 {
+        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) || t.node_section < 0 {
             return None;
         }
         let (base, stride) = self.section(t.node_section);
-        let node: SqlNode =
-            unsafe { ((base + index as usize * stride) as *const SqlNode).read() };
+        let node: FlatNode =
+            unsafe { ((base + index as usize * stride) as *const FlatNode).read() };
         Some(node.tag)
     }
 
@@ -666,7 +666,7 @@ impl Tree {
     /// projections. None when `ty` is not a product.
     pub(crate) fn product_ptr(&self, ty: u16, index: u32) -> Option<(*const u8, usize)> {
         let t = self.type_info(ty);
-        if SqlTypeKind::from_u8(t.kind) != Some(SqlTypeKind::Product) || t.node_section < 0 {
+        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Product) || t.node_section < 0 {
             return None;
         }
         let (base, stride) = self.section(t.node_section);
@@ -677,7 +677,7 @@ impl Tree {
     /// tag is `tag`, for typed projections.
     pub(crate) fn payload_ptr(&self, ty: u16, index: u32, tag: u16) -> Option<(*const u8, usize)> {
         let t = self.type_info(ty);
-        if SqlTypeKind::from_u8(t.kind) != Some(SqlTypeKind::Sum) || t.node_section < 0 {
+        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) || t.node_section < 0 {
             return None;
         }
         if self.sum_tag(ty, index)? != tag {
@@ -689,8 +689,8 @@ impl Tree {
         }
         let (pbase, pstride) = self.section(ctor.payload_section);
         let (base, stride) = self.section(t.node_section);
-        let node: SqlNode =
-            unsafe { ((base + index as usize * stride) as *const SqlNode).read() };
+        let node: FlatNode =
+            unsafe { ((base + index as usize * stride) as *const FlatNode).read() };
         Some(((pbase + node.payload as usize * pstride) as *const u8, pstride))
     }
 
@@ -700,17 +700,17 @@ impl Tree {
         &self,
         ty: u16,
         index: u32,
-    ) -> (*const u8, &'static [SqlFieldInfo], Option<&SqlCtorInfo>) {
+    ) -> (*const u8, &'static [FlatFieldInfo], Option<&FlatCtorInfo>) {
         let t = self.type_info(ty);
         let (base, stride) = self.section(t.node_section);
-        match SqlTypeKind::from_u8(t.kind) {
-            Some(SqlTypeKind::Product) => {
+        match FlatTypeKind::from_u8(t.kind) {
+            Some(FlatTypeKind::Product) => {
                 let fields = unsafe { table(t.fields, t.field_count) };
                 ((base + index as usize * stride) as *const u8, fields, None)
             }
             _ => {
-                let node: SqlNode =
-                    unsafe { ((base + index as usize * stride) as *const SqlNode).read() };
+                let node: FlatNode =
+                    unsafe { ((base + index as usize * stride) as *const FlatNode).read() };
                 let ctor = &self.ctors()[t.ctor_off as usize + node.tag as usize];
                 if ctor.payload_section < 0 {
                     return (std::ptr::null(), &[], Some(ctor));
@@ -726,38 +726,38 @@ impl Tree {
         }
     }
 
-    fn read_field(&self, base: *const u8, f: &SqlFieldInfo) -> Value<'_> {
+    fn read_field(&self, base: *const u8, f: &FlatFieldInfo) -> Value<'_> {
         let p = unsafe { base.add(f.offset as usize) };
-        let enc = SqlEnc::from_u8(f.enc).expect("schema and host ABI agree (handshake)");
+        let enc = FlatEnc::from_u8(f.enc).expect("schema and host ABI agree (handshake)");
         match enc {
-            SqlEnc::Bool => Value::Bool(unsafe { p.cast::<u8>().read() } != 0),
-            SqlEnc::Byte => Value::Byte(unsafe { p.cast::<u8>().read() }),
-            SqlEnc::Int => Value::Int(unsafe { p.cast::<i32>().read() }),
-            SqlEnc::Long => Value::Long(unsafe { p.cast::<i64>().read() }),
-            SqlEnc::SimpleSum => Value::SimpleSum(f.type_index, unsafe { p.cast::<u8>().read() }),
-            SqlEnc::Str => Value::Str(self.str_at(unsafe { p.cast::<SqlStr>().read() })),
-            SqlEnc::Node => Value::Node(Node {
+            FlatEnc::Bool => Value::Bool(unsafe { p.cast::<u8>().read() } != 0),
+            FlatEnc::Byte => Value::Byte(unsafe { p.cast::<u8>().read() }),
+            FlatEnc::Int => Value::Int(unsafe { p.cast::<i32>().read() }),
+            FlatEnc::Long => Value::Long(unsafe { p.cast::<i64>().read() }),
+            FlatEnc::SimpleSum => Value::SimpleSum(f.type_index, unsafe { p.cast::<u8>().read() }),
+            FlatEnc::Str => Value::Str(self.str_at(unsafe { p.cast::<FlatStr>().read() })),
+            FlatEnc::Node => Value::Node(Node {
                 tree: self,
                 ty: f.type_index,
                 index: unsafe { p.cast::<u32>().read() },
             }),
-            SqlEnc::OptBool => match unsafe { p.cast::<OptBool>().read() }.get() {
+            FlatEnc::OptBool => match unsafe { p.cast::<OptBool>().read() }.get() {
                 Some(v) => Value::Bool(v),
                 None => Value::None,
             },
-            SqlEnc::OptByte => match unsafe { p.cast::<OptByte>().read() }.get() {
+            FlatEnc::OptByte => match unsafe { p.cast::<OptByte>().read() }.get() {
                 Some(v) => Value::Byte(v),
                 None => Value::None,
             },
-            SqlEnc::OptInt => match unsafe { p.cast::<OptInt>().read() }.get() {
+            FlatEnc::OptInt => match unsafe { p.cast::<OptInt>().read() }.get() {
                 Some(v) => Value::Int(v),
                 None => Value::None,
             },
-            SqlEnc::OptLong => match unsafe { p.cast::<OptLong>().read() }.get() {
+            FlatEnc::OptLong => match unsafe { p.cast::<OptLong>().read() }.get() {
                 Some(v) => Value::Long(v),
                 None => Value::None,
             },
-            SqlEnc::OptSimpleSum => {
+            FlatEnc::OptSimpleSum => {
                 let v = unsafe { p.cast::<u8>().read() };
                 if v == NONE_U8 {
                     Value::None
@@ -765,15 +765,15 @@ impl Tree {
                     Value::SimpleSum(f.type_index, v)
                 }
             }
-            SqlEnc::OptStr => {
-                let s = unsafe { p.cast::<SqlStr>().read() };
+            FlatEnc::OptStr => {
+                let s = unsafe { p.cast::<FlatStr>().read() };
                 if s.is_none() {
                     Value::None
                 } else {
                     Value::Str(self.str_at(s))
                 }
             }
-            SqlEnc::OptNode => {
+            FlatEnc::OptNode => {
                 let index = unsafe { p.cast::<u32>().read() };
                 if index == NONE_U32 {
                     Value::None
@@ -781,10 +781,10 @@ impl Tree {
                     Value::Node(Node { tree: self, ty: f.type_index, index })
                 }
             }
-            SqlEnc::Seq => Value::Seq(SeqView {
+            FlatEnc::Seq => Value::Seq(SeqView {
                 tree: self,
                 elem_ty: f.type_index,
-                seq: unsafe { p.cast::<SqlSeq>().read() },
+                seq: unsafe { p.cast::<FlatSeq>().read() },
             }),
         }
     }
@@ -844,17 +844,17 @@ impl<'t> Node<'t> {
     /// [`Tree::kind_by_name`]); None for products.
     pub fn kind_id(self) -> Option<u32> {
         let t = self.tree.type_info(self.ty);
-        if SqlTypeKind::from_u8(t.kind) != Some(SqlTypeKind::Sum) {
+        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) {
             return None;
         }
         let (base, stride) = self.tree.section(t.node_section);
-        let node: SqlNode =
-            unsafe { ((base + self.index as usize * stride) as *const SqlNode).read() };
+        let node: FlatNode =
+            unsafe { ((base + self.index as usize * stride) as *const FlatNode).read() };
         Some(t.ctor_off + node.tag as u32)
     }
 
     /// The node's fields, as raw descriptors (name + encoding + offset).
-    pub fn fields(self) -> &'t [SqlFieldInfo] {
+    pub fn fields(self) -> &'t [FlatFieldInfo] {
         let (_, fields, _) = self.tree.node_record(self.ty, self.index);
         fields
     }
@@ -896,7 +896,7 @@ pub enum Value<'t> {
 pub struct SeqView<'t> {
     tree: &'t Tree,
     elem_ty: u16,
-    seq: SqlSeq,
+    seq: FlatSeq,
 }
 
 impl<'t> SeqView<'t> {
@@ -921,14 +921,14 @@ impl<'t> SeqView<'t> {
         let t = self.tree.type_info(self.elem_ty);
         let (base, stride) = self.tree.section(t.seq_section);
         let p = (base + (self.seq.off as usize + i) * stride) as *const u8;
-        let enc = SqlEnc::from_u8(t.enc).expect("schema and host ABI agree (handshake)");
+        let enc = FlatEnc::from_u8(t.enc).expect("schema and host ABI agree (handshake)");
         Some(match enc {
-            SqlEnc::Str => Value::Str(self.tree.str_at(unsafe { p.cast::<SqlStr>().read() })),
-            SqlEnc::SimpleSum => Value::SimpleSum(self.elem_ty, unsafe { p.cast::<u8>().read() }),
-            SqlEnc::Int => Value::Int(unsafe { p.cast::<i32>().read() }),
-            SqlEnc::Long => Value::Long(unsafe { p.cast::<i64>().read() }),
-            SqlEnc::Byte | SqlEnc::Bool => Value::Byte(unsafe { p.cast::<u8>().read() }),
-            SqlEnc::Node => Value::Node(Node {
+            FlatEnc::Str => Value::Str(self.tree.str_at(unsafe { p.cast::<FlatStr>().read() })),
+            FlatEnc::SimpleSum => Value::SimpleSum(self.elem_ty, unsafe { p.cast::<u8>().read() }),
+            FlatEnc::Int => Value::Int(unsafe { p.cast::<i32>().read() }),
+            FlatEnc::Long => Value::Long(unsafe { p.cast::<i64>().read() }),
+            FlatEnc::Byte | FlatEnc::Bool => Value::Byte(unsafe { p.cast::<u8>().read() }),
+            FlatEnc::Node => Value::Node(Node {
                 tree: self.tree,
                 ty: self.elem_ty,
                 index: unsafe { p.cast::<u32>().read() },
@@ -955,13 +955,13 @@ impl<'t> SeqView<'t> {
 /// Raw parts of the exported entry point's contract; called only by the
 /// wrapper `export_sql_dialect!` generates.
 pub unsafe fn parse_entry(
-    parse: fn(&str) -> Result<*mut SqlTree, String>,
+    parse: fn(&str) -> Result<*mut FlatTree, String>,
     src: *const u8,
     src_len: usize,
     err_buf: *mut u8,
     err_buf_cap: usize,
     err_len: *mut usize,
-) -> *mut SqlTree {
+) -> *mut FlatTree {
     let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let bytes = unsafe { std::slice::from_raw_parts(src, src_len) };
         match std::str::from_utf8(bytes) {
@@ -996,20 +996,20 @@ pub unsafe fn parse_entry(
 /// export_sql_dialect!(sql_dialect_snowflake, "snowflake", "1.0.0", parse);
 /// ```
 ///
-/// expands to a `static` [`SqlDialect`] plus
-/// `pub extern "C" fn sql_dialect_snowflake() -> *const SqlDialect`. `parse`
-/// is a `fn(&str) -> Result<*mut SqlTree, String>` — typically the lowering
+/// expands to a `static` [`FlatDialect`] plus
+/// `pub extern "C" fn sql_dialect_snowflake() -> *const FlatDialect`. `parse`
+/// is a `fn(&str) -> Result<*mut FlatTree, String>` — typically the lowering
 /// plus [`TreeBuilder::finish`]. Per-dialect symbols (not a generic entry)
 /// keep static linking possible. Requires the `builder` feature: the
 /// descriptor references the library-side schema statics.
 #[macro_export]
 macro_rules! export_sql_dialect {
     ($entry:ident, $name:expr, $version:expr, $parse:expr) => {
-        static DIALECT: $crate::SqlDialect = $crate::SqlDialect {
+        static DIALECT: $crate::FlatDialect = $crate::FlatDialect {
             abi_version: $crate::ABI_VERSION,
             schema_hash: $crate::SCHEMA_HASH,
-            name: $crate::SqlName::from_static($name),
-            dialect_version: $crate::SqlName::from_static($version),
+            name: $crate::FlatName::from_static($name),
+            dialect_version: $crate::FlatName::from_static($version),
             schema: &$crate::SCHEMA,
             parse: {
                 unsafe extern "C" fn wrapped(
@@ -1018,7 +1018,7 @@ macro_rules! export_sql_dialect {
                     err_buf: *mut u8,
                     err_buf_cap: usize,
                     err_len: *mut usize,
-                ) -> *mut $crate::SqlTree {
+                ) -> *mut $crate::FlatTree {
                     unsafe {
                         $crate::parse_entry($parse, src, src_len, err_buf, err_buf_cap, err_len)
                     }
@@ -1029,7 +1029,7 @@ macro_rules! export_sql_dialect {
 
         /// The dialect descriptor entry point.
         #[unsafe(no_mangle)]
-        pub extern "C" fn $entry() -> *const $crate::SqlDialect {
+        pub extern "C" fn $entry() -> *const $crate::FlatDialect {
             &DIALECT
         }
     };
@@ -1146,14 +1146,14 @@ fn push_int(v: i64, out: &mut String) {
 pub mod loader {
     use std::path::Path;
 
-    use super::{ABI_VERSION, ABI_VERSION_MIN, AbiError, SqlDialect, Tree, validate_schema};
+    use super::{ABI_VERSION, ABI_VERSION_MIN, AbiError, FlatDialect, Tree, validate_schema};
 
     /// A loaded dialect library: its descriptor plus the parse entry point.
     ///
     /// The library is never unloaded (the load-once policy), so the descriptor
     /// and every tree it produces stay valid for the rest of the process.
     pub struct Dialect {
-        descriptor: &'static SqlDialect,
+        descriptor: &'static FlatDialect,
     }
 
     /// Why a library was not loaded.
@@ -1200,7 +1200,7 @@ pub mod loader {
                 .map_err(|e| LoadError::Open(e.to_string()))?;
             let symbol = format!("sql_dialect_{name}");
             let entry = unsafe {
-                lib.get::<unsafe extern "C" fn() -> *const SqlDialect>(symbol.as_bytes())
+                lib.get::<unsafe extern "C" fn() -> *const FlatDialect>(symbol.as_bytes())
             }
             .map_err(|_| LoadError::MissingSymbol(symbol))?;
             let raw = unsafe { entry() };
@@ -1224,7 +1224,7 @@ pub mod loader {
         }
 
         /// The library's descriptor.
-        pub fn descriptor(&self) -> &SqlDialect {
+        pub fn descriptor(&self) -> &FlatDialect {
             self.descriptor
         }
 
