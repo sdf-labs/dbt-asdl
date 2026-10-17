@@ -273,7 +273,7 @@ impl Layout {
                 let elem = if kind == InfoKind::Product {
                     rust
                 } else {
-                    "SqlNode".to_string()
+                    "FlatNode".to_string()
                 };
                 sections.push((format!("{name}_nodes"), elem));
             }
@@ -296,7 +296,7 @@ impl Layout {
                 continue;
             }
             let elem = if t == "identifier" || t == "string" {
-                "SqlStr".to_string()
+                "FlatStr".to_string()
             } else {
                 let info = &infos[t];
                 if info.kind == InfoKind::SimpleSum {
@@ -348,7 +348,7 @@ impl Layout {
 fn record_ty(f: &Field, infos: &HashMap<String, TypeInfo>) -> String {
     let t = f.ty.as_str();
     if f.seq {
-        return "SqlSeq".to_string();
+        return "FlatSeq".to_string();
     }
     if f.opt {
         return match t {
@@ -356,7 +356,7 @@ fn record_ty(f: &Field, infos: &HashMap<String, TypeInfo>) -> String {
             "byte" => "OptByte".to_string(),
             "int" => "OptInt".to_string(),
             "long" => "OptLong".to_string(),
-            "identifier" | "string" => "SqlStr".to_string(),
+            "identifier" | "string" => "FlatStr".to_string(),
             _ if infos[t].kind == InfoKind::SimpleSum => "u8".to_string(),
             _ => format!("{}Ref", camel(t)),
         };
@@ -365,7 +365,7 @@ fn record_ty(f: &Field, infos: &HashMap<String, TypeInfo>) -> String {
         "bool" | "byte" => "u8".to_string(),
         "int" => "i32".to_string(),
         "long" => "i64".to_string(),
-        "identifier" | "string" => "SqlStr".to_string(),
+        "identifier" | "string" => "FlatStr".to_string(),
         _ if infos[t].kind == InfoKind::SimpleSum => "u8".to_string(),
         _ => format!("{}Ref", camel(t)),
     }
@@ -579,7 +579,7 @@ fn emit_builder(
     w.push("/// The flat tree under construction: one growable buffer per section.".to_string());
     w.push("/// Indices need no fixups on growth, so nodes can be pushed in any".to_string());
     w.push("/// order (children first is the natural order for lowerings). `finish`".to_string());
-    w.push("/// freezes the buffers into a `SqlTree` for the host.".to_string());
+    w.push("/// freezes the buffers into a `FlatTree` for the host.".to_string());
     w.push("pub struct TreeBuilder {".to_string());
     for (name, elem) in &layout.sections {
         w.push(format!("    {name}: Vec<{elem}>,"));
@@ -598,10 +598,10 @@ fn emit_builder(
     w.push("    }".to_string());
     w.push(String::new());
     w.push("    /// A string into the tree's UTF-8 blob.".to_string());
-    w.push("    pub fn push_str(&mut self, s: &str) -> SqlStr {".to_string());
+    w.push("    pub fn push_str(&mut self, s: &str) -> FlatStr {".to_string());
     w.push("        let off = self.strings.len() as u32;".to_string());
     w.push("        self.strings.extend_from_slice(s.as_bytes());".to_string());
-    w.push("        SqlStr { off, len: s.len() as u32 }".to_string());
+    w.push("        FlatStr { off, len: s.len() as u32 }".to_string());
     w.push("    }".to_string());
 
     for d in &mod_node.dfns {
@@ -640,7 +640,7 @@ fn emit_builder(
                         "        let i = self.{}_nodes.len() as u32;",
                         info.name
                     ));
-                    w.push(format!("        self.{}_nodes.push(SqlNode {{", info.name));
+                    w.push(format!("        self.{}_nodes.push(FlatNode {{", info.name));
                     w.push(format!(
                         "            tag: {}Tag::{cname} as u16,",
                         info.rust
@@ -663,7 +663,7 @@ fn emit_builder(
                         "        let i = self.{}_nodes.len() as u32;",
                         info.name
                     ));
-                    w.push(format!("        self.{}_nodes.push(SqlNode {{", info.name));
+                    w.push(format!("        self.{}_nodes.push(FlatNode {{", info.name));
                     w.push(format!(
                         "            tag: {}Tag::{cname} as u16,",
                         info.rust
@@ -682,26 +682,26 @@ fn emit_builder(
         w.push(String::new());
         w.push(format!("    /// A sequence of `{t}` into the pool."));
         w.push(format!(
-            "    pub fn push_{t}_seq(&mut self, items: &[{elem}]) -> SqlSeq {{"
+            "    pub fn push_{t}_seq(&mut self, items: &[{elem}]) -> FlatSeq {{"
         ));
         w.push(format!("        let off = self.{t}_seq.len() as u32;"));
         w.push(format!("        self.{t}_seq.extend_from_slice(items);"));
-        w.push("        SqlSeq { off, len: items.len() as u32 }".to_string());
+        w.push("        FlatSeq { off, len: items.len() as u32 }".to_string());
         w.push("    }".to_string());
     }
 
     w.push(String::new());
-    w.push("    /// Freeze the buffers into a host-ready `SqlTree`. The buffers are".to_string());
+    w.push("    /// Freeze the buffers into a host-ready `FlatTree`. The buffers are".to_string());
     w.push("    /// boxed in place and the header points at them; `release` (called".to_string());
     w.push("    /// by the host, or by `Tree`'s Drop) frees everything.".to_string());
-    w.push("    pub fn finish(self, root: FileRef) -> *mut SqlTree {".to_string());
-    w.push("        let mut sections: Vec<SqlSection> = Vec::new();".to_string());
+    w.push("    pub fn finish(self, root: FileRef) -> *mut FlatTree {".to_string());
+    w.push("        let mut sections: Vec<FlatSection> = Vec::new();".to_string());
     w.push("        macro_rules! sec {".to_string());
     w.push("            ($v:expr, $elem:ty) => {{".to_string());
     w.push("                let b = $v.into_boxed_slice();".to_string());
     w.push("                let len = b.len() as u32;".to_string());
     w.push("                let ptr = Box::into_raw(b) as *mut u8;".to_string());
-    w.push("                sections.push(SqlSection {".to_string());
+    w.push("                sections.push(FlatSection {".to_string());
     w.push("                    ptr,".to_string());
     w.push("                    len,".to_string());
     w.push("                    stride: std::mem::size_of::<$elem>() as u32,".to_string());
@@ -712,12 +712,12 @@ fn emit_builder(
         w.push(format!("        sec!(self.{name}, {elem});"));
     }
     w.push("        let sections = Box::into_raw(sections.into_boxed_slice());".to_string());
-    w.push("        let tree = Box::new(SqlTree {".to_string());
+    w.push("        let tree = Box::new(FlatTree {".to_string());
     w.push("            abi_version: ABI_VERSION,".to_string());
     w.push("            schema_hash: SCHEMA_HASH,".to_string());
     w.push("            release,".to_string());
     w.push("            schema: &SCHEMA,".to_string());
-    w.push("            sections: sections as *mut SqlSection,".to_string());
+    w.push("            sections: sections as *mut FlatSection,".to_string());
     w.push(format!(
         "            section_count: {},",
         layout.sections.len()
@@ -738,7 +738,7 @@ fn emit_builder(
     w.push("/// The tree destructor named by the header: frees the sections (each a".to_string());
     w.push("/// boxed slice of plain data) and the header itself.".to_string());
     w.push("#[cfg(feature = \"builder\")]".to_string());
-    w.push("unsafe extern \"C\" fn release(tree: *mut SqlTree) {".to_string());
+    w.push("unsafe extern \"C\" fn release(tree: *mut FlatTree) {".to_string());
     w.push("    unsafe {".to_string());
     w.push("        let tree = Box::from_raw(tree);".to_string());
     w.push("        let sections = Box::from_raw(std::ptr::slice_from_raw_parts_mut(".to_string());
@@ -797,20 +797,20 @@ fn emit_schema(
         }
         w.push("#[cfg(feature = \"builder\")]".to_string());
         w.push(format!(
-            "static {}: &[SqlFieldInfo] = &[",
+            "static {}: &[FlatFieldInfo] = &[",
             field_table_name(owner)
         ));
         for f in fields {
             let fname = f.name.as_deref().unwrap();
             let (enc, tidx) = field_enc(f, infos, layout);
             let tidx_str = tidx.map_or_else(|| "u16::MAX".to_string(), |idx| idx.to_string());
-            w.push("    SqlFieldInfo {".to_string());
-            w.push(format!("        name: SqlName::from_static(\"{fname}\"),"));
+            w.push("    FlatFieldInfo {".to_string());
+            w.push(format!("        name: FlatName::from_static(\"{fname}\"),"));
             w.push(format!(
                 "        offset: std::mem::offset_of!({owner}, {}) as u32,",
                 rust_field(fname)
             ));
-            w.push(format!("        enc: SqlEnc::{enc} as u8,"));
+            w.push(format!("        enc: FlatEnc::{enc} as u8,"));
             w.push(format!("        type_index: {tidx_str},"));
             w.push("    },".to_string());
         }
@@ -846,7 +846,7 @@ fn emit_schema(
     }
 
     w.push("#[cfg(feature = \"builder\")]".to_string());
-    w.push("static CTORS: &[SqlCtorInfo] = &[".to_string());
+    w.push("static CTORS: &[FlatCtorInfo] = &[".to_string());
     for d in &mod_node.dfns {
         let info = &infos[&d.name];
         if !matches!(info.kind, InfoKind::SimpleSum | InfoKind::CompoundSum) {
@@ -866,9 +866,9 @@ fn emit_schema(
                         "-1".to_string(),
                     )
                 };
-            w.push("    SqlCtorInfo {".to_string());
+            w.push("    FlatCtorInfo {".to_string());
             w.push(format!(
-                "        name: SqlName::from_static(\"{}\"),",
+                "        name: FlatName::from_static(\"{}\"),",
                 camel(&c.name)
             ));
             w.push(format!("        tag: {tag},"));
@@ -883,7 +883,7 @@ fn emit_schema(
     w.push(String::new());
 
     w.push("#[cfg(feature = \"builder\")]".to_string());
-    w.push("static TYPES: &[SqlTypeInfo] = &[".to_string());
+    w.push("static TYPES: &[FlatTypeInfo] = &[".to_string());
     for t in &layout.types {
         let (kind, enc, node_section, seq_section, ctor_off, ctor_count, fptr, fcnt) =
             if BUILTIN_TYPES.contains(&t.as_str()) {
@@ -948,10 +948,10 @@ fn emit_schema(
                     fcnt,
                 )
             };
-        w.push("    SqlTypeInfo {".to_string());
-        w.push(format!("        name: SqlName::from_static(\"{t}\"),"));
-        w.push(format!("        kind: SqlTypeKind::{kind} as u8,"));
-        w.push(format!("        enc: SqlEnc::{enc} as u8,"));
+        w.push("    FlatTypeInfo {".to_string());
+        w.push(format!("        name: FlatName::from_static(\"{t}\"),"));
+        w.push(format!("        kind: FlatTypeKind::{kind} as u8,"));
+        w.push(format!("        enc: FlatEnc::{enc} as u8,"));
         w.push(format!("        node_section: {node_section},"));
         w.push(format!("        seq_section: {seq_section},"));
         w.push(format!("        ctor_off: {ctor_off},"));
@@ -971,7 +971,7 @@ fn emit_schema(
 
     w.push("/// The schema of the sql.asdl this build was generated from.".to_string());
     w.push("#[cfg(feature = \"builder\")]".to_string());
-    w.push("pub static SCHEMA: SqlSchema = SqlSchema {".to_string());
+    w.push("pub static SCHEMA: FlatSchema = FlatSchema {".to_string());
     w.push("    abi_version: ABI_VERSION,".to_string());
     w.push("    schema_hash: SCHEMA_HASH,".to_string());
     w.push("    types: TYPES.as_ptr(),".to_string());
@@ -1154,12 +1154,12 @@ fn convert_expr(f: &Field, infos: &HashMap<String, TypeInfo>, e: &str, b: &str) 
     if f.seq {
         if t == "string" {
             return format!(
-                "{{ let items: Vec<SqlStr> = {e}.iter().map(|s| {b}.push_str(s)).collect(); {b}.push_string_seq(&items) }}"
+                "{{ let items: Vec<FlatStr> = {e}.iter().map(|s| {b}.push_str(s)).collect(); {b}.push_string_seq(&items) }}"
             );
         }
         if t == "identifier" {
             return format!(
-                "{{ let items: Vec<SqlStr> = {e}.iter().map(|u| {b}.push_str(u.as_str())).collect(); {b}.push_identifier_seq(&items) }}"
+                "{{ let items: Vec<FlatStr> = {e}.iter().map(|u| {b}.push_str(u.as_str())).collect(); {b}.push_identifier_seq(&items) }}"
             );
         }
         let r = camel(t);
@@ -1178,9 +1178,9 @@ fn convert_expr(f: &Field, infos: &HashMap<String, TypeInfo>, e: &str, b: &str) 
             "byte" => format!("OptByte::from({e})"),
             "int" => format!("OptInt::from({e})"),
             "long" => format!("OptLong::from({e})"),
-            "string" => format!("{e}.map(|s| {b}.push_str(s)).unwrap_or(SqlStr::NONE)"),
+            "string" => format!("{e}.map(|s| {b}.push_str(s)).unwrap_or(FlatStr::NONE)"),
             "identifier" => {
-                format!("{e}.map(|u| {b}.push_str(u.as_str())).unwrap_or(SqlStr::NONE)")
+                format!("{e}.map(|u| {b}.push_str(u.as_str())).unwrap_or(FlatStr::NONE)")
             }
             _ if infos[t].kind == InfoKind::SimpleSum => {
                 format!("{e}.map(|x| x as u8).unwrap_or(NONE_U8)")
@@ -1204,7 +1204,7 @@ fn convert_expr(f: &Field, infos: &HashMap<String, TypeInfo>, e: &str, b: &str) 
 fn freeze_label(f: &Field, infos: &HashMap<String, TypeInfo>) -> String {
     if f.seq {
         let elem_field = Field::new(f.ty.clone(), None, Vec::new());
-        return format!("SqlSeq<{}>", record_ty(&elem_field, infos));
+        return format!("FlatSeq<{}>", record_ty(&elem_field, infos));
     }
     if !BUILTIN_TYPES.contains(&f.ty.as_str()) && infos[&f.ty].kind == InfoKind::SimpleSum {
         let suffix = if f.opt { "?" } else { "" };
@@ -1349,7 +1349,7 @@ fn emit_convert(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, 
     w.push("/// the flat boundary representation: one O(nodes) pass, children".to_string());
     w.push("/// first. Dialect libraries that lower into the arena tree call this".to_string());
     w.push("/// at the boundary.".to_string());
-    w.push("pub fn convert_file(root: ast::FileRef) -> *mut SqlTree {".to_string());
+    w.push("pub fn convert_file(root: ast::FileRef) -> *mut FlatTree {".to_string());
     w.push("    let mut b = TreeBuilder::new();".to_string());
     w.push("    let root = lower_file(&mut b, root);".to_string());
     w.push("    b.finish(root)".to_string());
@@ -1552,7 +1552,7 @@ pub(crate) fn generate_flat_from_module(
 /// The generator reads the ASDL specification at `src` and writes two files
 /// into the parent directory of `dst`:
 ///
-/// - `dst` (for example, `gen_flat.rs`): the flat ABI boundary runtime (`SqlTree`,
+/// - `dst` (for example, `gen_flat.rs`): the flat ABI boundary runtime (`FlatTree`,
 ///   `Tree`, `Node`, `Value`, `export_sql_dialect!`, and `loader`), `#[repr(C)]`
 ///   record structs, typed node reference newtypes, constructor tag enums,
 ///   `TreeBuilder`, `@stable` typed projections, layout freeze dump, and schema
