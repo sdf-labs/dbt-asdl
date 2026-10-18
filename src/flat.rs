@@ -387,46 +387,39 @@ fn field_enc(
         "int" => (if opt { "OptInt" } else { "Int" }, None),
         "long" => (if opt { "OptLong" } else { "Long" }, None),
         "identifier" | "string" => (if opt { "OptStr" } else { "Str" }, None),
-        _ if infos[t].kind == InfoKind::SimpleSum => (
-            if opt { "OptSimpleSum" } else { "SimpleSum" },
-            Some(layout.type_index[t]),
-        ),
-        _ => (
-            if opt { "OptNode" } else { "Node" },
-            Some(layout.type_index[t]),
-        ),
+        _ if infos[t].kind == InfoKind::SimpleSum => {
+            (if opt { "OptSimpleSum" } else { "SimpleSum" }, Some(layout.type_index[t]))
+        }
+        _ => (if opt { "OptNode" } else { "Node" }, Some(layout.type_index[t])),
     }
 }
 
 fn emit_ref_newtypes(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, TypeInfo>) {
-    w.push("// A typed node reference per product and compound sum: a".to_string());
-    w.push("// repr(transparent) u32 index into the type's node section. NONE is".to_string());
-    w.push("// the None of an optional reference; check with is_none().".to_string());
+    emit!(w, "// A typed node reference per product and compound sum: a");
+    emit!(w, "// repr(transparent) u32 index into the type's node section. NONE is");
+    emit!(w, "// the None of an optional reference; check with is_none().");
     for d in &mod_node.dfns {
         let info = &infos[&d.name];
         if !matches!(info.kind, InfoKind::Product | InfoKind::CompoundSum) {
             continue;
         }
-        w.push(String::new());
-        w.push(format!("/// A reference to a `{}` node.", info.name));
-        w.push("#[repr(transparent)]".to_string());
-        w.push("#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]".to_string());
-        w.push(format!("pub struct {}Ref(pub u32);", info.rust));
-        w.push(String::new());
-        w.push(format!("impl {}Ref {{", info.rust));
-        w.push("    /// The None of an optional reference.".to_string());
-        w.push(format!(
-            "    pub const NONE: Self = {}Ref(NONE_U32);",
-            info.rust
-        ));
-        w.push(String::new());
-        w.push("    /// Whether this is the None sentinel.".to_string());
-        w.push("    pub fn is_none(self) -> bool {".to_string());
-        w.push("        self.0 == NONE_U32".to_string());
-        w.push("    }".to_string());
-        w.push("}".to_string());
+        emit!(w, "");
+        emit!(w, "/// A reference to a `{}` node.", info.name);
+        emit!(w, "#[repr(transparent)]");
+        emit!(w, "#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]");
+        emit!(w, "pub struct {}Ref(pub u32);", info.rust);
+        emit!(w, "");
+        emit!(w, "impl {}Ref {{", info.rust);
+        emit!(w, "    /// The None of an optional reference.");
+        emit!(w, "    pub const NONE: Self = {}Ref(NONE_U32);", info.rust);
+        emit!(w, "");
+        emit!(w, "    /// Whether this is the None sentinel.");
+        emit!(w, "    pub fn is_none(self) -> bool {{");
+        emit!(w, "        self.0 == NONE_U32");
+        emit!(w, "    }}");
+        emit!(w, "}}");
     }
-    w.push(String::new());
+    emit!(w, "");
 }
 
 fn emit_tag_enums(
@@ -434,9 +427,9 @@ fn emit_tag_enums(
     mod_node: &Module,
     infos: &HashMap<String, TypeInfo>,
 ) -> Result<(), CodegenError> {
-    w.push("// The constructor tag of every compound sum: the index within the".to_string());
-    w.push("// sum, in sql.asdl declaration order. Append new constructors at the".to_string());
-    w.push("// end; a reorder is a schema break.".to_string());
+    emit!(w, "// The constructor tag of every compound sum: the index within the");
+    emit!(w, "// sum, in sql.asdl declaration order. Append new constructors at the");
+    emit!(w, "// end; a reorder is a schema break.");
     for d in &mod_node.dfns {
         let info = &infos[&d.name];
         if info.kind != InfoKind::CompoundSum {
@@ -448,35 +441,28 @@ fn emit_tag_enums(
                 info.name
             )));
         }
-        w.push(String::new());
-        w.push(format!(
-            "/// The constructor tag of a `{}` node.",
-            info.name
-        ));
-        w.push("#[repr(u16)]".to_string());
-        w.push("#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]".to_string());
-        w.push(format!("pub enum {}Tag {{", info.rust));
+        emit!(w, "");
+        emit!(w, "/// The constructor tag of a `{}` node.", info.name);
+        emit!(w, "#[repr(u16)]");
+        emit!(w, "#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]");
+        emit!(w, "pub enum {}Tag {{", info.rust);
         for (tag, c) in info.constructors.iter().enumerate() {
-            w.push(format!("    {} = {tag},", camel(&c.name)));
+            emit!(w, "    {} = {tag},", camel(&c.name));
         }
-        w.push("}".to_string());
-        w.push(String::new());
-        w.push(format!("impl {}Tag {{", info.rust));
-        w.push("    /// The tag's constructor, or None for a value this schema".to_string());
-        w.push("    /// does not know (a skewed library's later addition).".to_string());
-        w.push("    pub fn from_u16(v: u16) -> Option<Self> {".to_string());
-        w.push("        Some(match v {".to_string());
+        emit!(w, "}}");
+        emit!(w, "");
+        emit!(w, "impl {}Tag {{", info.rust);
+        emit!(w, "    /// The tag's constructor, or None for a value this schema");
+        emit!(w, "    /// does not know (a skewed library's later addition).");
+        emit!(w, "    pub fn from_u16(v: u16) -> Option<Self> {{");
+        emit!(w, "        Some(match v {{");
         for (tag, c) in info.constructors.iter().enumerate() {
-            w.push(format!(
-                "            {tag} => {}Tag::{},",
-                info.rust,
-                camel(&c.name)
-            ));
+            emit!(w, "            {tag} => {}Tag::{},", info.rust, camel(&c.name));
         }
-        w.push("            _ => return None,".to_string());
-        w.push("        })".to_string());
-        w.push("    }".to_string());
-        w.push("}".to_string());
+        emit!(w, "            _ => return None,");
+        emit!(w, "        }})");
+        emit!(w, "    }}");
+        emit!(w, "}}");
     }
     for d in &mod_node.dfns {
         let info = &infos[&d.name];
@@ -487,81 +473,67 @@ fn emit_tag_enums(
             )));
         }
     }
-    w.push(String::new());
+    emit!(w, "");
     Ok(())
 }
 
 fn emit_records(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, TypeInfo>) {
-    w.push("// The record types: one #[repr(C)] struct per product and per".to_string());
-    w.push("// payload-carrying constructor. Field order is attributes first,".to_string());
-    w.push("// then declaration order; the C ABI fixes the layout. These same".to_string());
-    w.push("// structs are the @stable types' typed projections: stability is a".to_string());
-    w.push("// contract over this layout, not a second encoding.".to_string());
+    emit!(w, "// The record types: one #[repr(C)] struct per product and per");
+    emit!(w, "// payload-carrying constructor. Field order is attributes first,");
+    emit!(w, "// then declaration order; the C ABI fixes the layout. These same");
+    emit!(w, "// structs are the @stable types' typed projections: stability is a");
+    emit!(w, "// contract over this layout, not a second encoding.");
     for d in &mod_node.dfns {
         let info = &infos[&d.name];
         if info.kind == InfoKind::Product {
-            w.push(String::new());
+            emit!(w, "");
             if info.stable {
-                w.push(format!(
-                    "/// The `{}` record (@stable: shape guaranteed by",
-                    info.name
-                ));
-                w.push("/// the `abi_version` load handshake).".to_string());
+                emit!(w, "/// The `{}` record (@stable: shape guaranteed by", info.name);
+                emit!(w, "/// the `abi_version` load handshake).");
             } else {
-                w.push(format!("/// The `{}` record.", info.name));
+                emit!(w, "/// The `{}` record.", info.name);
             }
-            w.push("#[repr(C)]".to_string());
-            w.push("#[derive(Clone, Copy, Debug)]".to_string());
-            w.push(format!("pub struct {} {{", info.rust));
+            emit!(w, "#[repr(C)]");
+            emit!(w, "#[derive(Clone, Copy, Debug)]");
+            emit!(w, "pub struct {} {{", info.rust);
             for f in info.record_fields(None) {
                 let fname = f.name.as_deref().unwrap();
-                w.push(format!(
-                    "    pub {}: {},",
-                    rust_field(fname),
-                    record_ty(&f, infos)
-                ));
+                emit!(w, "    pub {}: {},", rust_field(fname), record_ty(&f, infos));
             }
-            w.push("}".to_string());
+            emit!(w, "}}");
         } else if info.kind == InfoKind::CompoundSum {
             if !info.constructors.iter().any(|c| info.ctor_has_record(c)) {
                 continue;
             }
-            w.push(String::new());
-            w.push(format!(
-                "/// The `{}` payload records: one struct per",
-                info.name
-            ));
-            w.push("/// constructor, attributes first.".to_string());
+            emit!(w, "");
+            emit!(w, "/// The `{}` payload records: one struct per", info.name);
+            emit!(w, "/// constructor, attributes first.");
             if info.stable {
-                w.push("///".to_string());
-                w.push("/// @stable: shape guaranteed by the `abi_version` load".to_string());
-                w.push("/// handshake.".to_string());
+                emit!(w, "///");
+                emit!(w, "/// @stable: shape guaranteed by the `abi_version` load");
+                emit!(w, "/// handshake.");
             }
-            w.push(format!("pub mod {} {{", info.name));
-            w.push("    use super::*;".to_string());
+            emit!(w, "pub mod {} {{", info.name);
+            emit!(w, "    use super::*;");
             for c in &info.constructors {
                 if !info.ctor_has_record(c) {
                     continue;
                 }
-                w.push(String::new());
-                w.push(format!("    /// `{}::{}`.", info.rust, camel(&c.name)));
-                w.push("    #[repr(C)]".to_string());
-                w.push("    #[derive(Clone, Copy, Debug)]".to_string());
-                w.push(format!("    pub struct {} {{", camel(&c.name)));
+                emit!(w, "");
+                emit!(w, "    /// `{}::{}`.", info.rust, camel(&c.name));
+                emit!(w, "    #[repr(C)]");
+                emit!(w, "    #[derive(Clone, Copy, Debug)]");
+                emit!(w, "    pub struct {} {{", camel(&c.name));
                 for f in info.record_fields(Some(c)) {
                     let fname = f.name.as_deref().unwrap();
-                    w.push(format!(
-                        "        pub {}: {},",
-                        rust_field(fname),
-                        record_ty(&f, infos)
-                    ));
+                    emit!(w, "        pub {}: {},", rust_field(fname), record_ty(&f, infos));
                 }
-                w.push("    }".to_string());
+                emit!(w, "    }}");
             }
-            w.push("}".to_string());
+            emit!(w, "}}");
         }
     }
-    w.push(String::new());
+    emit!(w, "");
 }
 
 fn emit_builder(
@@ -570,202 +542,186 @@ fn emit_builder(
     infos: &HashMap<String, TypeInfo>,
     layout: &Layout,
 ) {
-    w.push("// ------------------------------------------------------------------".to_string());
-    w.push("// The library-side builder: the freeze buffer the converter writes".to_string());
-    w.push("// into. Hosts never build trees, so all of it is behind `convert`.".to_string());
-    w.push("// ------------------------------------------------------------------".to_string());
-    w.push(String::new());
-    w.push("#[cfg(feature = \"builder\")]".to_string());
-    w.push("/// The flat tree under construction: one growable buffer per section.".to_string());
-    w.push("/// Indices need no fixups on growth, so nodes can be pushed in any".to_string());
-    w.push("/// order (children first is the natural order for lowerings). `finish`".to_string());
-    w.push("/// freezes the buffers into a `FlatTree` for the host.".to_string());
-    w.push("pub struct TreeBuilder {".to_string());
+    emit!(w, "// ------------------------------------------------------------------");
+    emit!(w, "// The library-side builder: the freeze buffer the converter writes");
+    emit!(w, "// into. Hosts never build trees, so all of it is behind `convert`.");
+    emit!(w, "// ------------------------------------------------------------------");
+    emit!(w, "");
+    emit!(w, "#[cfg(feature = \"builder\")]");
+    emit!(w, "/// The flat tree under construction: one growable buffer per section.");
+    emit!(w, "/// Indices need no fixups on growth, so nodes can be pushed in any");
+    emit!(w, "/// order (children first is the natural order for lowerings). `finish`");
+    emit!(w, "/// freezes the buffers into a `FlatTree` for the host.");
+    emit!(w, "pub struct TreeBuilder {{");
     for (name, elem) in &layout.sections {
-        w.push(format!("    {name}: Vec<{elem}>,"));
+        emit!(w, "    {name}: Vec<{elem}>,");
     }
-    w.push("}".to_string());
-    w.push(String::new());
-    w.push("#[cfg(feature = \"builder\")]".to_string());
-    w.push("impl TreeBuilder {".to_string());
-    w.push("    /// An empty tree under construction.".to_string());
-    w.push("    pub fn new() -> Self {".to_string());
-    w.push("        TreeBuilder {".to_string());
+    emit!(w, "}}");
+    emit!(w, "");
+    emit!(w, "#[cfg(feature = \"builder\")]");
+    emit!(w, "impl TreeBuilder {{");
+    emit!(w, "    /// An empty tree under construction.");
+    emit!(w, "    pub fn new() -> Self {{");
+    emit!(w, "        TreeBuilder {{");
     for (name, _) in &layout.sections {
-        w.push(format!("            {name}: Vec::new(),"));
+        emit!(w, "            {name}: Vec::new(),");
     }
-    w.push("        }".to_string());
-    w.push("    }".to_string());
-    w.push(String::new());
-    w.push("    /// A string into the tree's UTF-8 blob.".to_string());
-    w.push("    pub fn push_str(&mut self, s: &str) -> FlatStr {".to_string());
-    w.push("        let off = self.strings.len() as u32;".to_string());
-    w.push("        self.strings.extend_from_slice(s.as_bytes());".to_string());
-    w.push("        FlatStr { off, len: s.len() as u32 }".to_string());
-    w.push("    }".to_string());
+    emit!(w, "        }}");
+    emit!(w, "    }}");
+    emit!(w, "");
+    emit!(w, "    /// A string into the tree's UTF-8 blob.");
+    emit!(w, "    pub fn push_str(&mut self, s: &str) -> FlatStr {{");
+    emit!(w, "        let off = self.strings.len() as u32;");
+    emit!(w, "        self.strings.extend_from_slice(s.as_bytes());");
+    emit!(w, "        FlatStr {{ off, len: s.len() as u32 }}");
+    emit!(w, "    }}");
 
     for d in &mod_node.dfns {
         let info = &infos[&d.name];
         if info.kind == InfoKind::Product {
-            w.push(String::new());
-            w.push(format!("    /// Push a `{}` node.", info.name));
-            w.push(format!(
+            emit!(w, "");
+            emit!(w, "    /// Push a `{}` node.", info.name);
+            emit!(
+                w,
                 "    pub fn push_{}(&mut self, r: {}) -> {}Ref {{",
-                info.name, info.rust, info.rust
-            ));
-            w.push(format!(
-                "        let i = self.{}_nodes.len() as u32;",
-                info.name
-            ));
-            w.push(format!("        self.{}_nodes.push(r);", info.name));
-            w.push(format!("        {}Ref(i)", info.rust));
-            w.push("    }".to_string());
+                info.name,
+                info.rust,
+                info.rust
+            );
+            emit!(w, "        let i = self.{}_nodes.len() as u32;", info.name);
+            emit!(w, "        self.{}_nodes.push(r);", info.name);
+            emit!(w, "        {}Ref(i)", info.rust);
+            emit!(w, "    }}");
         } else if info.kind == InfoKind::CompoundSum {
             for c in &info.constructors {
                 let cname = camel(&c.name);
                 let uname = uncamel(&c.name);
-                w.push(String::new());
+                emit!(w, "");
                 if info.ctor_has_record(c) {
-                    w.push(format!("    /// Push a `{cname}` node of `{}`.", info.name));
-                    w.push(format!(
+                    emit!(w, "    /// Push a `{cname}` node of `{}`.", info.name);
+                    emit!(
+                        w,
                         "    pub fn push_{}_{uname}(&mut self, r: {}::{cname}) -> {}Ref {{",
-                        info.name, info.name, info.rust
-                    ));
-                    w.push(format!(
-                        "        let payload = self.{}_{uname}.len() as u32;",
-                        info.name
-                    ));
-                    w.push(format!("        self.{}_{uname}.push(r);", info.name));
-                    w.push(format!(
-                        "        let i = self.{}_nodes.len() as u32;",
-                        info.name
-                    ));
-                    w.push(format!("        self.{}_nodes.push(FlatNode {{", info.name));
-                    w.push(format!(
-                        "            tag: {}Tag::{cname} as u16,",
+                        info.name,
+                        info.name,
                         info.rust
-                    ));
-                    w.push("            _pad: 0,".to_string());
-                    w.push("            payload,".to_string());
-                    w.push("        });".to_string());
-                    w.push(format!("        {}Ref(i)", info.rust));
-                    w.push("    }".to_string());
+                    );
+                    emit!(w, "        let payload = self.{}_{uname}.len() as u32;", info.name);
+                    emit!(w, "        self.{}_{uname}.push(r);", info.name);
+                    emit!(w, "        let i = self.{}_nodes.len() as u32;", info.name);
+                    emit!(w, "        self.{}_nodes.push(FlatNode {{", info.name);
+                    emit!(w, "            tag: {}Tag::{cname} as u16,", info.rust);
+                    emit!(w, "            _pad: 0,");
+                    emit!(w, "            payload,");
+                    emit!(w, "        }});");
+                    emit!(w, "        {}Ref(i)", info.rust);
+                    emit!(w, "    }}");
                 } else {
-                    w.push(format!(
-                        "    /// Push a bare `{cname}` node of `{}`.",
-                        info.name
-                    ));
-                    w.push(format!(
+                    emit!(w, "    /// Push a bare `{cname}` node of `{}`.", info.name);
+                    emit!(
+                        w,
                         "    pub fn push_{}_{uname}(&mut self) -> {}Ref {{",
-                        info.name, info.rust
-                    ));
-                    w.push(format!(
-                        "        let i = self.{}_nodes.len() as u32;",
-                        info.name
-                    ));
-                    w.push(format!("        self.{}_nodes.push(FlatNode {{", info.name));
-                    w.push(format!(
-                        "            tag: {}Tag::{cname} as u16,",
+                        info.name,
                         info.rust
-                    ));
-                    w.push("            _pad: 0,".to_string());
-                    w.push("            payload: NONE_U32,".to_string());
-                    w.push("        });".to_string());
-                    w.push(format!("        {}Ref(i)", info.rust));
-                    w.push("    }".to_string());
+                    );
+                    emit!(w, "        let i = self.{}_nodes.len() as u32;", info.name);
+                    emit!(w, "        self.{}_nodes.push(FlatNode {{", info.name);
+                    emit!(w, "            tag: {}Tag::{cname} as u16,", info.rust);
+                    emit!(w, "            _pad: 0,");
+                    emit!(w, "            payload: NONE_U32,");
+                    emit!(w, "        }});");
+                    emit!(w, "        {}Ref(i)", info.rust);
+                    emit!(w, "    }}");
                 }
             }
         }
     }
 
     for (t, elem, _) in &layout.seq_pools {
-        w.push(String::new());
-        w.push(format!("    /// A sequence of `{t}` into the pool."));
-        w.push(format!(
-            "    pub fn push_{t}_seq(&mut self, items: &[{elem}]) -> FlatSeq {{"
-        ));
-        w.push(format!("        let off = self.{t}_seq.len() as u32;"));
-        w.push(format!("        self.{t}_seq.extend_from_slice(items);"));
-        w.push("        FlatSeq { off, len: items.len() as u32 }".to_string());
-        w.push("    }".to_string());
+        emit!(w, "");
+        emit!(w, "    /// A sequence of `{t}` into the pool.");
+        emit!(w, "    pub fn push_{t}_seq(&mut self, items: &[{elem}]) -> FlatSeq {{");
+        emit!(w, "        let off = self.{t}_seq.len() as u32;");
+        emit!(w, "        self.{t}_seq.extend_from_slice(items);");
+        emit!(w, "        FlatSeq {{ off, len: items.len() as u32 }}");
+        emit!(w, "    }}");
     }
 
-    w.push(String::new());
-    w.push("    /// Freeze the buffers into a host-ready `FlatTree`. The buffers are".to_string());
-    w.push("    /// boxed in place and the header points at them; `release` (called".to_string());
-    w.push("    /// by the host, or by `Tree`'s Drop) frees everything.".to_string());
-    w.push("    pub fn finish(self, root: FileRef) -> *mut FlatTree {".to_string());
-    w.push("        let mut sections: Vec<FlatSection> = Vec::new();".to_string());
-    w.push("        macro_rules! sec {".to_string());
-    w.push("            ($v:expr, $elem:ty) => {{".to_string());
-    w.push("                let b = $v.into_boxed_slice();".to_string());
-    w.push("                let len = b.len() as u32;".to_string());
-    w.push("                let ptr = Box::into_raw(b) as *mut u8;".to_string());
-    w.push("                sections.push(FlatSection {".to_string());
-    w.push("                    ptr,".to_string());
-    w.push("                    len,".to_string());
-    w.push("                    stride: std::mem::size_of::<$elem>() as u32,".to_string());
-    w.push("                });".to_string());
-    w.push("            }};".to_string());
-    w.push("        }".to_string());
+    emit!(w, "");
+    emit!(w, "    /// Freeze the buffers into a host-ready `FlatTree`. The buffers are");
+    emit!(w, "    /// boxed in place and the header points at them; `release` (called");
+    emit!(w, "    /// by the host, or by `Tree`'s Drop) frees everything.");
+    emit!(w, "    pub fn finish(self, root: FileRef) -> *mut FlatTree {{");
+    emit!(w, "        let mut sections: Vec<FlatSection> = Vec::new();");
+    emit!(w, "        macro_rules! sec {{");
+    emit!(w, "            ($v:expr, $elem:ty) => {{{{");
+    emit!(w, "                let b = $v.into_boxed_slice();");
+    emit!(w, "                let len = b.len() as u32;");
+    emit!(w, "                let ptr = Box::into_raw(b) as *mut u8;");
+    emit!(w, "                sections.push(FlatSection {{");
+    emit!(w, "                    ptr,");
+    emit!(w, "                    len,");
+    emit!(w, "                    stride: std::mem::size_of::<$elem>() as u32,");
+    emit!(w, "                }});");
+    emit!(w, "            }}}};");
+    emit!(w, "        }}");
     for (name, elem) in &layout.sections {
-        w.push(format!("        sec!(self.{name}, {elem});"));
+        emit!(w, "        sec!(self.{name}, {elem});");
     }
-    w.push("        let sections = Box::into_raw(sections.into_boxed_slice());".to_string());
-    w.push("        let tree = Box::new(FlatTree {".to_string());
-    w.push("            abi_version: ABI_VERSION,".to_string());
-    w.push("            schema_hash: SCHEMA_HASH,".to_string());
-    w.push("            release,".to_string());
-    w.push("            schema: &SCHEMA,".to_string());
-    w.push("            sections: sections as *mut FlatSection,".to_string());
-    w.push(format!(
-        "            section_count: {},",
-        layout.sections.len()
-    ));
-    w.push("            root_index: root.0,".to_string());
-    w.push("        });".to_string());
-    w.push("        Box::into_raw(tree)".to_string());
-    w.push("    }".to_string());
-    w.push("}".to_string());
-    w.push(String::new());
-    w.push("#[cfg(feature = \"builder\")]".to_string());
-    w.push("impl Default for TreeBuilder {".to_string());
-    w.push("    fn default() -> Self {".to_string());
-    w.push("        Self::new()".to_string());
-    w.push("    }".to_string());
-    w.push("}".to_string());
-    w.push(String::new());
-    w.push("/// The tree destructor named by the header: frees the sections (each a".to_string());
-    w.push("/// boxed slice of plain data) and the header itself.".to_string());
-    w.push("#[cfg(feature = \"builder\")]".to_string());
-    w.push("unsafe extern \"C\" fn release(tree: *mut FlatTree) {".to_string());
-    w.push("    unsafe {".to_string());
-    w.push("        let tree = Box::from_raw(tree);".to_string());
-    w.push("        let sections = Box::from_raw(std::ptr::slice_from_raw_parts_mut(".to_string());
-    w.push("            tree.sections,".to_string());
-    w.push("            tree.section_count as usize,".to_string());
-    w.push("        ));".to_string());
-    w.push("        for (i, s) in sections.iter().enumerate() {".to_string());
-    w.push("            let ptr = s.ptr;".to_string());
-    w.push("            let len = s.len as usize;".to_string());
-    w.push("            match i {".to_string());
+    emit!(w, "        let sections = Box::into_raw(sections.into_boxed_slice());");
+    emit!(w, "        let tree = Box::new(FlatTree {{");
+    emit!(w, "            abi_version: ABI_VERSION,");
+    emit!(w, "            schema_hash: SCHEMA_HASH,");
+    emit!(w, "            release,");
+    emit!(w, "            schema: &SCHEMA,");
+    emit!(w, "            sections: sections as *mut FlatSection,");
+    emit!(w, "            section_count: {},", layout.sections.len());
+    emit!(w, "            root_index: root.0,");
+    emit!(w, "        }});");
+    emit!(w, "        Box::into_raw(tree)");
+    emit!(w, "    }}");
+    emit!(w, "}}");
+    emit!(w, "");
+    emit!(w, "#[cfg(feature = \"builder\")]");
+    emit!(w, "impl Default for TreeBuilder {{");
+    emit!(w, "    fn default() -> Self {{");
+    emit!(w, "        Self::new()");
+    emit!(w, "    }}");
+    emit!(w, "}}");
+    emit!(w, "");
+    emit!(w, "/// The tree destructor named by the header: frees the sections (each a");
+    emit!(w, "/// boxed slice of plain data) and the header itself.");
+    emit!(w, "#[cfg(feature = \"builder\")]");
+    emit!(w, "unsafe extern \"C\" fn release(tree: *mut FlatTree) {{");
+    emit!(w, "    unsafe {{");
+    emit!(w, "        let tree = Box::from_raw(tree);");
+    emit!(w, "        let sections = Box::from_raw(std::ptr::slice_from_raw_parts_mut(");
+    emit!(w, "            tree.sections,");
+    emit!(w, "            tree.section_count as usize,");
+    emit!(w, "        ));");
+    emit!(w, "        for (i, s) in sections.iter().enumerate() {{");
+    emit!(w, "            let ptr = s.ptr;");
+    emit!(w, "            let len = s.len as usize;");
+    emit!(w, "            match i {{");
     for (i, (_, elem)) in layout.sections.iter().enumerate() {
-        w.push(format!("                {i} => {{"));
-        w.push("                    drop(Box::from_raw(".to_string());
-        w.push(format!(
+        emit!(w, "                {i} => {{");
+        emit!(w, "                    drop(Box::from_raw(");
+        emit!(
+            w,
             "                        std::ptr::slice_from_raw_parts_mut(ptr as *mut {elem}, len),"
-        ));
-        w.push("                    ));".to_string());
-        w.push("                }".to_string());
+        );
+        emit!(w, "                    ));");
+        emit!(w, "                }}");
     }
-    w.push(
-        "                _ => unreachable!(\"section_count is fixed by this build\"),".to_string(),
+    emit!(
+        w,
+        "                _ => unreachable!(\"section_count is fixed by this build\"),"
     );
-    w.push("            }".to_string());
-    w.push("        }".to_string());
-    w.push("    }".to_string());
-    w.push("}".to_string());
-    w.push(String::new());
+    emit!(w, "            }}");
+    emit!(w, "        }}");
+    emit!(w, "    }}");
+    emit!(w, "}}");
+    emit!(w, "");
 }
 
 fn emit_schema(
@@ -774,12 +730,12 @@ fn emit_schema(
     infos: &HashMap<String, TypeInfo>,
     layout: &Layout,
 ) -> Result<(), CodegenError> {
-    w.push("// ------------------------------------------------------------------".to_string());
-    w.push("// The schema statics: the schema-as-data the host's introspection".to_string());
-    w.push("// reads through the tree header. Identity is by name; indices are".to_string());
-    w.push("// this build's own. Library-side: behind `builder` like TreeBuilder.".to_string());
-    w.push("// ------------------------------------------------------------------".to_string());
-    w.push(String::new());
+    emit!(w, "// ------------------------------------------------------------------");
+    emit!(w, "// The schema statics: the schema-as-data the host's introspection");
+    emit!(w, "// reads through the tree header. Identity is by name; indices are");
+    emit!(w, "// this build's own. Library-side: behind `builder` like TreeBuilder.");
+    emit!(w, "// ------------------------------------------------------------------");
+    emit!(w, "");
 
     fn field_table_name(owner: &str) -> String {
         format!("FIELDS_{}", owner.replace("::", "_").to_uppercase())
@@ -795,27 +751,25 @@ fn emit_schema(
         if fields.is_empty() {
             return;
         }
-        w.push("#[cfg(feature = \"builder\")]".to_string());
-        w.push(format!(
-            "static {}: &[FlatFieldInfo] = &[",
-            field_table_name(owner)
-        ));
+        emit!(w, "#[cfg(feature = \"builder\")]");
+        emit!(w, "static {}: &[FlatFieldInfo] = &[", field_table_name(owner));
         for f in fields {
             let fname = f.name.as_deref().unwrap();
             let (enc, tidx) = field_enc(f, infos, layout);
             let tidx_str = tidx.map_or_else(|| "u16::MAX".to_string(), |idx| idx.to_string());
-            w.push("    FlatFieldInfo {".to_string());
-            w.push(format!("        name: FlatName::from_static(\"{fname}\"),"));
-            w.push(format!(
+            emit!(w, "    FlatFieldInfo {{");
+            emit!(w, "        name: FlatName::from_static(\"{fname}\"),");
+            emit!(
+                w,
                 "        offset: std::mem::offset_of!({owner}, {}) as u32,",
                 rust_field(fname)
-            ));
-            w.push(format!("        enc: FlatEnc::{enc} as u8,"));
-            w.push(format!("        type_index: {tidx_str},"));
-            w.push("    },".to_string());
+            );
+            emit!(w, "        enc: FlatEnc::{enc} as u8,");
+            emit!(w, "        type_index: {tidx_str},");
+            emit!(w, "    }},");
         }
-        w.push("];".to_string());
-        w.push(String::new());
+        emit!(w, "];");
+        emit!(w, "");
     }
 
     fn fields_ptr(owner: &str, fields: &[Field]) -> (String, String) {
@@ -845,8 +799,8 @@ fn emit_schema(
         }
     }
 
-    w.push("#[cfg(feature = \"builder\")]".to_string());
-    w.push("static CTORS: &[FlatCtorInfo] = &[".to_string());
+    emit!(w, "#[cfg(feature = \"builder\")]");
+    emit!(w, "static CTORS: &[FlatCtorInfo] = &[");
     for d in &mod_node.dfns {
         let info = &infos[&d.name];
         if !matches!(info.kind, InfoKind::SimpleSum | InfoKind::CompoundSum) {
@@ -860,30 +814,23 @@ fn emit_schema(
                     let (fp, fc) = fields_ptr(&owner, &rf);
                     (fp, fc, sec.to_string())
                 } else {
-                    (
-                        "std::ptr::null()".to_string(),
-                        "0".to_string(),
-                        "-1".to_string(),
-                    )
+                    ("std::ptr::null()".to_string(), "0".to_string(), "-1".to_string())
                 };
-            w.push("    FlatCtorInfo {".to_string());
-            w.push(format!(
-                "        name: FlatName::from_static(\"{}\"),",
-                camel(&c.name)
-            ));
-            w.push(format!("        tag: {tag},"));
-            w.push(format!("        type_index: {},", info.type_index.unwrap()));
-            w.push(format!("        payload_section: {psec},"));
-            w.push(format!("        fields: {fptr},"));
-            w.push(format!("        field_count: {fcnt},"));
-            w.push("    },".to_string());
+            emit!(w, "    FlatCtorInfo {{");
+            emit!(w, "        name: FlatName::from_static(\"{}\"),", camel(&c.name));
+            emit!(w, "        tag: {tag},");
+            emit!(w, "        type_index: {},", info.type_index.unwrap());
+            emit!(w, "        payload_section: {psec},");
+            emit!(w, "        fields: {fptr},");
+            emit!(w, "        field_count: {fcnt},");
+            emit!(w, "    }},");
         }
     }
-    w.push("];".to_string());
-    w.push(String::new());
+    emit!(w, "];");
+    emit!(w, "");
 
-    w.push("#[cfg(feature = \"builder\")]".to_string());
-    w.push("static TYPES: &[FlatTypeInfo] = &[".to_string());
+    emit!(w, "#[cfg(feature = \"builder\")]");
+    emit!(w, "static TYPES: &[FlatTypeInfo] = &[");
     for t in &layout.types {
         let (kind, enc, node_section, seq_section, ctor_off, ctor_count, fptr, fcnt) =
             if BUILTIN_TYPES.contains(&t.as_str()) {
@@ -924,10 +871,7 @@ fn emit_schema(
                     .map_or_else(|| "-1".to_string(), |idx| idx.to_string());
                 let (ctor_off, ctor_count) =
                     if matches!(info.kind, InfoKind::SimpleSum | InfoKind::CompoundSum) {
-                        (
-                            info.ctor_off.unwrap().to_string(),
-                            info.constructors.len().to_string(),
-                        )
+                        (info.ctor_off.unwrap().to_string(), info.constructors.len().to_string())
                     } else {
                         ("0".to_string(), "0".to_string())
                     };
@@ -937,65 +881,50 @@ fn emit_schema(
                 } else {
                     ("std::ptr::null()".to_string(), "0".to_string())
                 };
-                (
-                    kind,
-                    enc,
-                    node_section,
-                    seq_section,
-                    ctor_off,
-                    ctor_count,
-                    fptr,
-                    fcnt,
-                )
+                (kind, enc, node_section, seq_section, ctor_off, ctor_count, fptr, fcnt)
             };
-        w.push("    FlatTypeInfo {".to_string());
-        w.push(format!("        name: FlatName::from_static(\"{t}\"),"));
-        w.push(format!("        kind: FlatTypeKind::{kind} as u8,"));
-        w.push(format!("        enc: FlatEnc::{enc} as u8,"));
-        w.push(format!("        node_section: {node_section},"));
-        w.push(format!("        seq_section: {seq_section},"));
-        w.push(format!("        ctor_off: {ctor_off},"));
-        w.push(format!("        ctor_count: {ctor_count},"));
-        w.push(format!("        fields: {fptr},"));
-        w.push(format!("        field_count: {fcnt},"));
-        w.push("    },".to_string());
+        emit!(w, "    FlatTypeInfo {{");
+        emit!(w, "        name: FlatName::from_static(\"{t}\"),");
+        emit!(w, "        kind: FlatTypeKind::{kind} as u8,");
+        emit!(w, "        enc: FlatEnc::{enc} as u8,");
+        emit!(w, "        node_section: {node_section},");
+        emit!(w, "        seq_section: {seq_section},");
+        emit!(w, "        ctor_off: {ctor_off},");
+        emit!(w, "        ctor_count: {ctor_count},");
+        emit!(w, "        fields: {fptr},");
+        emit!(w, "        field_count: {fcnt},");
+        emit!(w, "    }},");
     }
-    w.push("];".to_string());
-    w.push(String::new());
+    emit!(w, "];");
+    emit!(w, "");
 
     let Some(&root_type) = layout.type_index.get("file") else {
-        return Err(CodegenError(
-            "flat layout requires a 'file' root type".to_string(),
-        ));
+        return Err(CodegenError("flat layout requires a 'file' root type".to_string()));
     };
 
-    w.push("/// The schema of the sql.asdl this build was generated from.".to_string());
-    w.push("#[cfg(feature = \"builder\")]".to_string());
-    w.push("pub static SCHEMA: FlatSchema = FlatSchema {".to_string());
-    w.push("    abi_version: ABI_VERSION,".to_string());
-    w.push("    schema_hash: SCHEMA_HASH,".to_string());
-    w.push("    types: TYPES.as_ptr(),".to_string());
-    w.push("    type_count: TYPES.len() as u32,".to_string());
-    w.push("    ctors: CTORS.as_ptr(),".to_string());
-    w.push("    ctor_count: CTORS.len() as u32,".to_string());
-    w.push(format!("    root_type: {root_type},"));
-    w.push("};".to_string());
-    w.push(String::new());
+    emit!(w, "/// The schema of the sql.asdl this build was generated from.");
+    emit!(w, "#[cfg(feature = \"builder\")]");
+    emit!(w, "pub static SCHEMA: FlatSchema = FlatSchema {{");
+    emit!(w, "    abi_version: ABI_VERSION,");
+    emit!(w, "    schema_hash: SCHEMA_HASH,");
+    emit!(w, "    types: TYPES.as_ptr(),");
+    emit!(w, "    type_count: TYPES.len() as u32,");
+    emit!(w, "    ctors: CTORS.as_ptr(),");
+    emit!(w, "    ctor_count: CTORS.len() as u32,");
+    emit!(w, "    root_type: {root_type},");
+    emit!(w, "}};");
+    emit!(w, "");
 
-    w.push("/// The type indices of this build's schema: host code resolves types".to_string());
-    w.push("/// by name through the descriptor; these constants serve the library's".to_string());
-    w.push("/// own builder and tests.".to_string());
-    w.push("#[cfg(feature = \"builder\")]".to_string());
-    w.push("pub mod ty {".to_string());
+    emit!(w, "/// The type indices of this build's schema: host code resolves types");
+    emit!(w, "/// by name through the descriptor; these constants serve the library's");
+    emit!(w, "/// own builder and tests.");
+    emit!(w, "#[cfg(feature = \"builder\")]");
+    emit!(w, "pub mod ty {{");
     for t in &layout.types {
-        w.push(format!(
-            "    pub const {}: u16 = {};",
-            t.to_uppercase(),
-            layout.type_index[t]
-        ));
+        emit!(w, "    pub const {}: u16 = {};", t.to_uppercase(), layout.type_index[t]);
     }
-    w.push("}".to_string());
-    w.push(String::new());
+    emit!(w, "}}");
+    emit!(w, "");
     Ok(())
 }
 
@@ -1009,140 +938,104 @@ fn emit_stable(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
     if stable.is_empty() {
         return;
     }
-    w.push("// ------------------------------------------------------------------".to_string());
-    w.push("// The @stable typed projections".to_string());
-    w.push("// ------------------------------------------------------------------".to_string());
-    w.push(String::new());
+    emit!(w, "// ------------------------------------------------------------------");
+    emit!(w, "// The @stable typed projections");
+    emit!(w, "// ------------------------------------------------------------------");
+    emit!(w, "");
 
     for info in stable {
         let r = &info.rust;
         match info.kind {
             InfoKind::Product => {
-                w.push("impl<'t> Node<'t> {".to_string());
-                w.push(format!(
-                    "    /// This node as the @stable `{}` record, when it IS",
-                    info.name
-                ));
-                w.push(format!(
-                    "    /// a `{}`. The record shape is guaranteed by the",
-                    info.name
-                ));
-                w.push(
-                    "    /// load-time `abi_version` handshake; the stride check below".to_string(),
-                );
-                w.push("    /// is the per-call assertion of that contract.".to_string());
-                w.push(format!(
-                    "    pub fn as_{}(self) -> Option<&'t {r}> {{",
-                    info.name
-                ));
-                w.push("        let tree = self.tree();".to_string());
-                w.push(format!(
-                    "        let ty = tree.type_by_name(\"{}\")?;",
-                    info.name
-                ));
-                w.push("        if ty != self.type_index() {".to_string());
-                w.push("            return None;".to_string());
-                w.push("        }".to_string());
-                w.push(
-                    "        let (ptr, stride) = tree.product_ptr(ty, self.index())?;".to_string(),
-                );
-                w.push(format!(
-                    "        if stride != std::mem::size_of::<{r}>() {{"
-                ));
-                w.push("            return None;".to_string());
-                w.push("        }".to_string());
-                w.push(format!("        Some(unsafe {{ &*(ptr as *const {r}) }})"));
-                w.push("    }".to_string());
-                w.push("}".to_string());
-                w.push(String::new());
+                emit!(w, "impl<'t> Node<'t> {{");
+                emit!(w, "    /// This node as the @stable `{}` record, when it IS", info.name);
+                emit!(w, "    /// a `{}`. The record shape is guaranteed by the", info.name);
+                emit!(w, "    /// load-time `abi_version` handshake; the stride check below");
+                emit!(w, "    /// is the per-call assertion of that contract.");
+                emit!(w, "    pub fn as_{}(self) -> Option<&'t {r}> {{", info.name);
+                emit!(w, "        let tree = self.tree();");
+                emit!(w, "        let ty = tree.type_by_name(\"{}\")?;", info.name);
+                emit!(w, "        if ty != self.type_index() {{");
+                emit!(w, "            return None;");
+                emit!(w, "        }}");
+                emit!(w, "        let (ptr, stride) = tree.product_ptr(ty, self.index())?;");
+                emit!(w, "        if stride != std::mem::size_of::<{r}>() {{");
+                emit!(w, "            return None;");
+                emit!(w, "        }}");
+                emit!(w, "        Some(unsafe {{ &*(ptr as *const {r}) }})");
+                emit!(w, "    }}");
+                emit!(w, "}}");
+                emit!(w, "");
             }
             InfoKind::CompoundSum => {
-                w.push(format!(
-                    "/// A @stable `{}` node: the typed projection over the",
-                    info.name
-                ));
-                w.push("/// frozen layout.".to_string());
-                w.push("#[derive(Clone, Copy)]".to_string());
-                w.push(format!("pub struct Stable{r}<'t> {{"));
-                w.push("    node: Node<'t>,".to_string());
-                w.push("}".to_string());
-                w.push(String::new());
-                w.push("impl<'t> Node<'t> {".to_string());
-                w.push(format!(
-                    "    /// This node as a @stable `{}`, when it IS one.",
-                    info.name
-                ));
-                w.push("    /// The record shape is guaranteed by the load-time".to_string());
-                w.push("    /// `abi_version` handshake.".to_string());
-                w.push(format!(
-                    "    pub fn as_{}(self) -> Option<Stable{r}<'t>> {{",
-                    info.name
-                ));
-                w.push("        let tree = self.tree();".to_string());
-                w.push(format!(
+                emit!(w, "/// A @stable `{}` node: the typed projection over the", info.name);
+                emit!(w, "/// frozen layout.");
+                emit!(w, "#[derive(Clone, Copy)]");
+                emit!(w, "pub struct Stable{r}<'t> {{");
+                emit!(w, "    node: Node<'t>,");
+                emit!(w, "}}");
+                emit!(w, "");
+                emit!(w, "impl<'t> Node<'t> {{");
+                emit!(w, "    /// This node as a @stable `{}`, when it IS one.", info.name);
+                emit!(w, "    /// The record shape is guaranteed by the load-time");
+                emit!(w, "    /// `abi_version` handshake.");
+                emit!(w, "    pub fn as_{}(self) -> Option<Stable{r}<'t>> {{", info.name);
+                emit!(w, "        let tree = self.tree();");
+                emit!(
+                    w,
                     "        if tree.type_by_name(\"{}\") != Some(self.type_index()) {{",
                     info.name
-                ));
-                w.push("            return None;".to_string());
-                w.push("        }".to_string());
-                w.push(format!("        Some(Stable{r} {{ node: self }})"));
-                w.push("    }".to_string());
-                w.push("}".to_string());
-                w.push(String::new());
-                w.push(format!("impl<'t> Stable{r}<'t> {{"));
-                w.push("    /// The generic cursor, for ports and introspection.".to_string());
-                w.push("    pub fn node(self) -> Node<'t> {".to_string());
-                w.push("        self.node".to_string());
-                w.push("    }".to_string());
-                w.push(String::new());
-                w.push("    /// The constructor tag.".to_string());
-                w.push(format!("    pub fn tag(self) -> Option<{r}Tag> {{"));
-                w.push("        let tree = self.node.tree();".to_string());
-                w.push(format!(
-                    "        let ty = tree.type_by_name(\"{}\")?;",
-                    info.name
-                ));
-                w.push(format!(
-                    "        {r}Tag::from_u16(tree.sum_tag(ty, self.node.index())?)"
-                ));
-                w.push("    }".to_string());
+                );
+                emit!(w, "            return None;");
+                emit!(w, "        }}");
+                emit!(w, "        Some(Stable{r} {{ node: self }})");
+                emit!(w, "    }}");
+                emit!(w, "}}");
+                emit!(w, "");
+                emit!(w, "impl<'t> Stable{r}<'t> {{");
+                emit!(w, "    /// The generic cursor, for ports and introspection.");
+                emit!(w, "    pub fn node(self) -> Node<'t> {{");
+                emit!(w, "        self.node");
+                emit!(w, "    }}");
+                emit!(w, "");
+                emit!(w, "    /// The constructor tag.");
+                emit!(w, "    pub fn tag(self) -> Option<{r}Tag> {{");
+                emit!(w, "        let tree = self.node.tree();");
+                emit!(w, "        let ty = tree.type_by_name(\"{}\")?;", info.name);
+                emit!(w, "        {r}Tag::from_u16(tree.sum_tag(ty, self.node.index())?)");
+                emit!(w, "    }}");
                 for c in &info.constructors {
                     if !info.ctor_has_record(c) {
                         continue;
                     }
                     let cname = camel(&c.name);
-                    w.push(String::new());
-                    w.push(format!(
-                        "    /// The payload as `{cname}`, when that is the constructor."
-                    ));
-                    w.push(format!(
+                    emit!(w, "");
+                    emit!(w, "    /// The payload as `{cname}`, when that is the constructor.");
+                    emit!(
+                        w,
                         "    pub fn as_{}(self) -> Option<&'t {}::{cname}> {{",
                         uncamel(&cname),
                         info.name
-                    ));
-                    w.push("        let tree = self.node.tree();".to_string());
-                    w.push(format!(
-                        "        let ty = tree.type_by_name(\"{}\")?;",
-                        info.name
-                    ));
-                    w.push("        let (ptr, stride) =".to_string());
-                    w.push(format!(
+                    );
+                    emit!(w, "        let tree = self.node.tree();");
+                    emit!(w, "        let ty = tree.type_by_name(\"{}\")?;", info.name);
+                    emit!(w, "        let (ptr, stride) =");
+                    emit!(
+                        w,
                         "            tree.payload_ptr(ty, self.node.index(), {r}Tag::{cname} as u16)?;"
-                    ));
-                    w.push(format!(
+                    );
+                    emit!(
+                        w,
                         "        if stride != std::mem::size_of::<{}::{cname}>() {{",
                         info.name
-                    ));
-                    w.push("            return None;".to_string());
-                    w.push("        }".to_string());
-                    w.push(format!(
-                        "        Some(unsafe {{ &*(ptr as *const {}::{cname}) }})",
-                        info.name
-                    ));
-                    w.push("    }".to_string());
+                    );
+                    emit!(w, "            return None;");
+                    emit!(w, "        }}");
+                    emit!(w, "        Some(unsafe {{ &*(ptr as *const {}::{cname}) }})", info.name);
+                    emit!(w, "    }}");
                 }
-                w.push("}".to_string());
-                w.push(String::new());
+                emit!(w, "}}");
+                emit!(w, "");
             }
             InfoKind::SimpleSum => {}
         }
@@ -1185,10 +1078,7 @@ fn convert_expr(f: &Field, infos: &HashMap<String, TypeInfo>, e: &str, b: &str) 
             _ if infos[t].kind == InfoKind::SimpleSum => {
                 format!("{e}.map(|x| x as u8).unwrap_or(NONE_U8)")
             }
-            _ => format!(
-                "{e}.map(|x| lower_{t}({b}, x)).unwrap_or({}Ref::NONE)",
-                camel(t)
-            ),
+            _ => format!("{e}.map(|x| lower_{t}({b}, x)).unwrap_or({}Ref::NONE)", camel(t)),
         };
     }
     match t {
@@ -1240,39 +1130,38 @@ fn emit_freeze(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
             let label = freeze_label(f, infos);
             let fname = f.name.as_deref().unwrap();
             let rf = rust_field(fname);
-            lines.push(format!(
+            emit!(
+                lines,
                 "    writeln!(out, \"{indent}{fname}: {label} @{{}}\", std::mem::offset_of!({rec}, {rf})).unwrap();"
-            ));
+            );
         }
         lines
     }
 
-    w.push("// ------------------------------------------------------------------".to_string());
-    w.push("// The @stable freeze dump".to_string());
-    w.push("// ------------------------------------------------------------------".to_string());
-    w.push(String::new());
-    w.push("/// A canonical text dump of the `@stable` region's layout: record".to_string());
-    w.push("/// sizes/alignments, field offsets and types, and variant".to_string());
-    w.push("/// discriminants. `tests/freeze.rs` byte-compares it against the".to_string());
-    w.push("/// checked-in snapshot `sql-abi/stable_layout.txt`; regenerating a".to_string());
-    w.push("/// changed layout requires an `ABI_VERSION` bump.".to_string());
-    w.push("pub fn freeze_stable_layout() -> String {".to_string());
-    w.push("    let mut out = String::new();".to_string());
-    w.push("    use std::fmt::Write as _;".to_string());
-    w.push("    writeln!(out, \"abi_version: {}\", ABI_VERSION).unwrap();".to_string());
+    emit!(w, "// ------------------------------------------------------------------");
+    emit!(w, "// The @stable freeze dump");
+    emit!(w, "// ------------------------------------------------------------------");
+    emit!(w, "");
+    emit!(w, "/// A canonical text dump of the `@stable` region's layout: record");
+    emit!(w, "/// sizes/alignments, field offsets and types, and variant");
+    emit!(w, "/// discriminants. `tests/freeze.rs` byte-compares it against the");
+    emit!(w, "/// checked-in snapshot `sql-abi/stable_layout.txt`; regenerating a");
+    emit!(w, "/// changed layout requires an `ABI_VERSION` bump.");
+    emit!(w, "pub fn freeze_stable_layout() -> String {{");
+    emit!(w, "    let mut out = String::new();");
+    emit!(w, "    use std::fmt::Write as _;");
+    emit!(w, "    writeln!(out, \"abi_version: {{}}\", ABI_VERSION).unwrap();");
 
     for info in stable {
         let r = &info.rust;
-        w.push("    writeln!(out).unwrap();".to_string());
+        emit!(w, "    writeln!(out).unwrap();");
         match info.kind {
             InfoKind::Product => {
-                w.push(format!(
-                    "    writeln!(out, \"type {}: product size {{}} align {{}}\",",
-                    info.name
-                ));
-                w.push(format!(
+                emit!(w, "    writeln!(out, \"type {}: product size {{}} align {{}}\",", info.name);
+                emit!(
+                    w,
                     "        std::mem::size_of::<{r}>(), std::mem::align_of::<{r}>()).unwrap();"
-                ));
+                );
                 for line in field_lines(
                     r,
                     &info.record_fields(None),
@@ -1284,20 +1173,19 @@ fn emit_freeze(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
                 }
             }
             InfoKind::CompoundSum => {
-                w.push(format!(
-                    "    writeln!(out, \"type {}: sum\").unwrap();",
-                    info.name
-                ));
+                emit!(w, "    writeln!(out, \"type {}: sum\").unwrap();", info.name);
                 for (tag, c) in info.constructors.iter().enumerate() {
                     let cname = camel(&c.name);
                     if info.ctor_has_record(c) {
                         let rec = format!("{}::{cname}", info.name);
-                        w.push(format!(
+                        emit!(
+                            w,
                             "    writeln!(out, \"    variant {tag}: {cname} size {{}} align {{}}\","
-                        ));
-                        w.push(format!(
+                        );
+                        emit!(
+                            w,
                             "        std::mem::size_of::<{rec}>(), std::mem::align_of::<{rec}>()).unwrap();"
-                        ));
+                        );
                         for line in field_lines(
                             &rec,
                             &info.record_fields(Some(c)),
@@ -1308,9 +1196,10 @@ fn emit_freeze(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
                             w.push(line);
                         }
                     } else {
-                        w.push(format!(
+                        emit!(
+                            w,
                             "    writeln!(out, \"    variant {tag}: {cname} (bare)\").unwrap();"
-                        ));
+                        );
                     }
                 }
             }
@@ -1323,108 +1212,96 @@ fn emit_freeze(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
             continue;
         }
         let info = &infos[&d.name];
-        w.push("    writeln!(out).unwrap();".to_string());
-        w.push(format!(
+        emit!(w, "    writeln!(out).unwrap();");
+        emit!(
+            w,
             "    writeln!(out, \"type {}: simple_sum (referenced by a stable field)\").unwrap();",
             d.name
-        ));
+        );
         for (tag, c) in info.constructors.iter().enumerate() {
-            w.push(format!(
-                "    writeln!(out, \"    variant {tag}: {}\").unwrap();",
-                camel(&c.name)
-            ));
+            emit!(w, "    writeln!(out, \"    variant {tag}: {}\").unwrap();", camel(&c.name));
         }
     }
 
-    w.push("    out".to_string());
-    w.push("}".to_string());
-    w.push(String::new());
+    emit!(w, "    out");
+    emit!(w, "}}");
+    emit!(w, "");
 }
 
 fn emit_convert(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, TypeInfo>) {
-    w.push("use crate::*;".to_string());
-    w.push("use dbt_sql_ast as ast;".to_string());
-    w.push(String::new());
-    w.push("/// Deep-convert a finished arena/owned tree (behind the read API) into".to_string());
-    w.push("/// the flat boundary representation: one O(nodes) pass, children".to_string());
-    w.push("/// first. Dialect libraries that lower into the arena tree call this".to_string());
-    w.push("/// at the boundary.".to_string());
-    w.push("pub fn convert_file(root: ast::FileRef) -> *mut FlatTree {".to_string());
-    w.push("    let mut b = TreeBuilder::new();".to_string());
-    w.push("    let root = lower_file(&mut b, root);".to_string());
-    w.push("    b.finish(root)".to_string());
-    w.push("}".to_string());
+    emit!(w, "use crate::*;");
+    emit!(w, "use dbt_sql_ast as ast;");
+    emit!(w, "");
+    emit!(w, "/// Deep-convert a finished arena/owned tree (behind the read API) into");
+    emit!(w, "/// the flat boundary representation: one O(nodes) pass, children");
+    emit!(w, "/// first. Dialect libraries that lower into the arena tree call this");
+    emit!(w, "/// at the boundary.");
+    emit!(w, "pub fn convert_file(root: ast::FileRef) -> *mut FlatTree {{");
+    emit!(w, "    let mut b = TreeBuilder::new();");
+    emit!(w, "    let root = lower_file(&mut b, root);");
+    emit!(w, "    b.finish(root)");
+    emit!(w, "}}");
 
     for d in &mod_node.dfns {
         let info = &infos[&d.name];
         if info.kind == InfoKind::SimpleSum {
             continue;
         }
-        w.push(String::new());
+        emit!(w, "");
         if info.kind == InfoKind::Product {
             let arg = if info.shared {
                 format!("ast::{}", info.rust)
             } else {
                 format!("ast::{}Ref", info.rust)
             };
-            w.push(format!(
+            emit!(
+                w,
                 "fn lower_{}(b: &mut TreeBuilder, r: {arg}) -> {}Ref {{",
-                info.name, info.rust
-            ));
-            w.push(format!("    let r = {} {{", info.rust));
+                info.name,
+                info.rust
+            );
+            emit!(w, "    let r = {} {{", info.rust);
             for f in info.record_fields(None) {
                 let fname = f.name.as_deref().unwrap();
                 let rf = rust_field(fname);
                 let e = format!("r.{rf}()");
-                w.push(format!(
-                    "        {rf}: {},",
-                    convert_expr(&f, infos, &e, "b")
-                ));
+                emit!(w, "        {rf}: {},", convert_expr(&f, infos, &e, "b"));
             }
-            w.push("    };".to_string());
-            w.push(format!("    b.push_{}(r)", info.name));
-            w.push("}".to_string());
+            emit!(w, "    }};");
+            emit!(w, "    b.push_{}(r)", info.name);
+            emit!(w, "}}");
         } else {
             let r = &info.rust;
-            w.push(format!(
-                "fn lower_{}(b: &mut TreeBuilder, r: ast::{r}Ref) -> {r}Ref {{",
-                info.name
-            ));
-            w.push("    match r.view() {".to_string());
+            emit!(w, "fn lower_{}(b: &mut TreeBuilder, r: ast::{r}Ref) -> {r}Ref {{", info.name);
+            emit!(w, "    match r.view() {{");
             for c in &info.constructors {
                 let cname = camel(&c.name);
                 if info.attributes.is_empty() && c.fields.is_empty() {
-                    w.push(format!(
+                    emit!(
+                        w,
                         "        ast::{r}View::{cname} => b.push_{}_{}(),",
                         info.name,
                         uncamel(&c.name)
-                    ));
+                    );
                     continue;
                 }
-                w.push(format!("        ast::{r}View::{cname}(v) => {{"));
-                w.push(format!("            let r = {}::{cname} {{", info.name));
+                emit!(w, "        ast::{r}View::{cname}(v) => {{");
+                emit!(w, "            let r = {}::{cname} {{", info.name);
                 for f in info.record_fields(Some(c)) {
                     let fname = f.name.as_deref().unwrap();
                     let rf = rust_field(fname);
                     let e = format!("v.{rf}()");
-                    w.push(format!(
-                        "                {rf}: {},",
-                        convert_expr(&f, infos, &e, "b")
-                    ));
+                    emit!(w, "                {rf}: {},", convert_expr(&f, infos, &e, "b"));
                 }
-                w.push("            };".to_string());
-                w.push(format!(
-                    "            b.push_{}_{}(r)",
-                    info.name,
-                    uncamel(&c.name)
-                ));
-                w.push("        }".to_string());
+                emit!(w, "            }};");
+                emit!(w, "            b.push_{}_{}(r)", info.name, uncamel(&c.name));
+                emit!(w, "        }}");
             }
-            w.push("    }".to_string());
-            w.push("}".to_string());
+            emit!(w, "    }}");
+            emit!(w, "}}");
         }
     }
-    w.push(String::new());
+    emit!(w, "");
 }
 
 fn validate(mod_node: &Module, infos: &HashMap<String, TypeInfo>) -> Result<(), CodegenError> {
@@ -1518,16 +1395,14 @@ pub(crate) fn generate_flat_from_module(
         format!("// File automatically generated by dbt-asdl from {input_name}. Do not edit.");
 
     flat.push(header.clone());
-    flat.push(String::new());
+    emit!(flat, "");
     flat.push(include_str!("flat_runtime.rs").trim_end().to_string());
-    flat.push(String::new());
-    flat.push("/// FNV-1a/64 of the sql.asdl bytes this build was generated from.".to_string());
-    flat.push("/// Library-side: the host reads the hash from the descriptor.".to_string());
-    flat.push("#[cfg(feature = \"builder\")]".to_string());
-    flat.push(format!(
-        "pub const SCHEMA_HASH: u64 = 0x{schema_hash:016x};"
-    ));
-    flat.push(String::new());
+    emit!(flat, "");
+    emit!(flat, "/// FNV-1a/64 of the sql.asdl bytes this build was generated from.");
+    emit!(flat, "/// Library-side: the host reads the hash from the descriptor.");
+    emit!(flat, "#[cfg(feature = \"builder\")]");
+    emit!(flat, "pub const SCHEMA_HASH: u64 = 0x{schema_hash:016x};");
+    emit!(flat, "");
 
     emit_ref_newtypes(&mut flat, mod_node, &infos);
     emit_tag_enums(&mut flat, mod_node, &infos)?;
@@ -1538,7 +1413,7 @@ pub(crate) fn generate_flat_from_module(
     emit_schema(&mut flat, mod_node, &infos, &layout)?;
 
     conv.push(header);
-    conv.push(String::new());
+    emit!(conv, "");
     emit_convert(&mut conv, mod_node, &infos);
 
     Ok(GeneratedFlat {
