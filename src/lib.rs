@@ -22,6 +22,18 @@
 //!     .expect("failed to generate flat Rust AST from sql.asdl");
 //! ```
 
+macro_rules! emit {
+    ($w:ident, "") => {
+        $w.push(String::new())
+    };
+    ($w:ident, $lit:literal) => {
+        $w.push(format!($lit))
+    };
+    ($w:ident, $fmt:literal, $($arg:tt)*) => {
+        $w.push(format!($fmt, $($arg)*))
+    };
+}
+
 pub(crate) mod asdl;
 pub(crate) mod flat;
 pub(crate) mod rust;
@@ -109,10 +121,7 @@ module MiniSql {
 
         let dup = "module M { @stable @stable foo = Bar }";
         let err = parse_str(dup).unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "Syntax error on line 1: Duplicate annotation @stable"
-        );
+        assert_eq!(err.to_string(), "Syntax error on line 1: Duplicate annotation @stable");
     }
 
     #[test]
@@ -250,10 +259,7 @@ module Edge {
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
 
-        assert!(
-            !flat.contains("Sql"),
-            "the flat target must not mention Sql"
-        );
+        assert!(!flat.contains("Sql"), "the flat target must not mention Sql");
         insta::assert_snapshot!("mini_sql_flat", flat);
         insta::assert_snapshot!("mini_sql_convert", convert);
     }

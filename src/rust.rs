@@ -524,25 +524,25 @@ fn emit_field_sexpr(w: &mut Vec<String>, f: &Field, value: &str, indent: &str) {
         None
     };
     let Some(guard) = guard else {
-        w.push(format!("{indent}out.push_str(\" ({fname} \");"));
-        w.push(format!("{indent}{value}.write_sexpr(out);"));
-        w.push(format!("{indent}out.push(')');"));
+        emit!(w, "{indent}out.push_str(\" ({fname} \");");
+        emit!(w, "{indent}{value}.write_sexpr(out);");
+        emit!(w, "{indent}out.push(')');");
         return;
     };
-    w.push(format!("{indent}if {guard} {{"));
-    w.push(format!("{indent}    out.push_str(\" ({fname} \");"));
-    w.push(format!("{indent}    {value}.write_sexpr(out);"));
-    w.push(format!("{indent}    out.push(')');"));
-    w.push(format!("{indent}}}"));
+    emit!(w, "{indent}if {guard} {{");
+    emit!(w, "{indent}    out.push_str(\" ({fname} \");");
+    emit!(w, "{indent}    {value}.write_sexpr(out);");
+    emit!(w, "{indent}    out.push(')');");
+    emit!(w, "{indent}}}");
 }
 
 fn emit_simple_sum(w: &mut Vec<String>, info: &TypeInfo) {
-    w.push("#[derive(Clone, Copy, Debug, PartialEq, Eq)]".to_string());
-    w.push(format!("pub enum {} {{", info.rust));
+    emit!(w, "#[derive(Clone, Copy, Debug, PartialEq, Eq)]");
+    emit!(w, "pub enum {} {{", info.rust);
     for c in &info.constructors {
-        w.push(format!("    {},", camel(&c.name)));
+        emit!(w, "    {},", camel(&c.name));
     }
-    w.push("}".to_string());
+    emit!(w, "}}");
 }
 
 fn emit_shared_product(
@@ -558,19 +558,19 @@ fn emit_shared_product(
     } else {
         derives.push("Eq");
     }
-    w.push(format!("#[derive({})]", derives.join(", ")));
-    w.push(format!("pub struct {} {{", info.rust));
+    emit!(w, "#[derive({})]", derives.join(", "));
+    emit!(w, "pub struct {} {{", info.rust);
     for f in attrs.iter().chain(info.fields.iter()) {
         let rname = rust_field(field_name(f));
         let rty = rust_type(f, infos, "", Backend::Arena)?;
-        w.push(format!("    pub {rname}: {rty},"));
+        emit!(w, "    pub {rname}: {rty},");
     }
-    w.push("}".to_string());
+    emit!(w, "}}");
     if data != *attrs {
         let own: Vec<&Field> = data.iter().chain(info.fields.iter()).collect();
-        w.push(String::new());
-        w.push(format!("impl PartialEq for {} {{", info.rust));
-        w.push("    fn eq(&self, other: &Self) -> bool {".to_string());
+        emit!(w, "");
+        emit!(w, "impl PartialEq for {} {{", info.rust);
+        emit!(w, "    fn eq(&self, other: &Self) -> bool {{");
         let cond = own
             .iter()
             .map(|f| {
@@ -579,48 +579,29 @@ fn emit_shared_product(
             })
             .collect::<Vec<_>>()
             .join(" && ");
-        w.push(format!("        {cond}"));
-        w.push("    }".to_string());
-        w.push("}".to_string());
+        emit!(w, "        {cond}");
+        emit!(w, "    }}");
+        emit!(w, "}}");
     }
     Ok(())
 }
 
 fn emit_arena_ref_alias(w: &mut Vec<String>, info: &TypeInfo) {
-    w.push(format!(
-        "/// A reference to a `{}` node in the parse arena.",
-        info.name
-    ));
-    w.push(format!(
-        "pub type {}Ref<'a> = &'a {}{};",
-        info.rust,
-        info.rust,
-        info.tp()
-    ));
-    w.push(format!(
-        "/// A mutable construction handle to a `{}` node: a",
-        info.name
-    ));
-    w.push("/// node is built and adjusted through this, then frozen into a".to_string());
-    w.push("/// `<T>Ref` (an automatic `&mut` -> `&` coercion) when it is linked".to_string());
-    w.push("/// into the tree. Only construction code sees these; readers get".to_string());
-    w.push("/// `<T>Ref`.".to_string());
-    w.push(format!(
-        "pub type {}Mut<'a> = &'a mut {}{};",
-        info.rust,
-        info.rust,
-        info.tp()
-    ));
-    w.push(String::new());
+    emit!(w, "/// A reference to a `{}` node in the parse arena.", info.name);
+    emit!(w, "pub type {}Ref<'a> = &'a {}{};", info.rust, info.rust, info.tp());
+    emit!(w, "/// A mutable construction handle to a `{}` node: a", info.name);
+    emit!(w, "/// node is built and adjusted through this, then frozen into a");
+    emit!(w, "/// `<T>Ref` (an automatic `&mut` -> `&` coercion) when it is linked");
+    emit!(w, "/// into the tree. Only construction code sees these; readers get");
+    emit!(w, "/// `<T>Ref`.");
+    emit!(w, "pub type {}Mut<'a> = &'a mut {}{};", info.rust, info.rust, info.tp());
+    emit!(w, "");
 }
 
 fn emit_owned_ref_alias(w: &mut Vec<String>, info: &TypeInfo) {
-    w.push(format!("/// A reference to an owned `{}` node.", info.name));
-    w.push(format!(
-        "pub type {}Ref<'a> = &'a {};",
-        info.rust, info.rust
-    ));
-    w.push(String::new());
+    emit!(w, "/// A reference to an owned `{}` node.", info.name);
+    emit!(w, "pub type {}Ref<'a> = &'a {};", info.rust, info.rust);
+    emit!(w, "");
 }
 
 fn emit_product(
@@ -654,19 +635,19 @@ fn emit_product(
     } else {
         derives.push("Eq");
     }
-    w.push(format!("#[derive({})]", derives.join(", ")));
-    w.push(format!("pub struct {}{tp} {{", info.rust));
+    emit!(w, "#[derive({})]", derives.join(", "));
+    emit!(w, "pub struct {}{tp} {{", info.rust);
     for f in attrs.iter().chain(info.fields.iter()) {
         let rname = rust_field(field_name(f));
         let rty = rust_type(f, infos, "", backend)?;
-        w.push(format!("    pub {rname}: {rty},"));
+        emit!(w, "    pub {rname}: {rty},");
     }
-    w.push("}".to_string());
+    emit!(w, "}}");
     if data != *attrs {
         let own: Vec<&Field> = data.iter().chain(info.fields.iter()).collect();
-        w.push(String::new());
-        w.push(format!("impl{tp} PartialEq for {}{tp} {{", info.rust));
-        w.push("    fn eq(&self, other: &Self) -> bool {".to_string());
+        emit!(w, "");
+        emit!(w, "impl{tp} PartialEq for {}{tp} {{", info.rust);
+        emit!(w, "    fn eq(&self, other: &Self) -> bool {{");
         let cond = own
             .iter()
             .map(|f| {
@@ -675,9 +656,9 @@ fn emit_product(
             })
             .collect::<Vec<_>>()
             .join(" && ");
-        w.push(format!("        {cond}"));
-        w.push("    }".to_string());
-        w.push("}".to_string());
+        emit!(w, "        {cond}");
+        emit!(w, "    }}");
+        emit!(w, "}}");
     }
     Ok(())
 }
@@ -730,18 +711,15 @@ fn emit_compound_sum(
             (c, camel(&c.name), fields)
         })
         .collect();
-    w.push(format!(
-        "/// The `{}` variant payloads: one struct per constructor,",
-        info.name
-    ));
-    w.push("/// each held indirectly so the enum stays one word.".to_string());
-    w.push(format!("pub mod {mod_name} {{"));
+    emit!(w, "/// The `{}` variant payloads: one struct per constructor,", info.name);
+    emit!(w, "/// each held indirectly so the enum stays one word.");
+    emit!(w, "pub mod {mod_name} {{");
     if backend == Backend::Arena {
-        w.push("    #[allow(unused_imports)]".to_string());
-        w.push("    use bumpalo::collections::Vec;".to_string());
+        emit!(w, "    #[allow(unused_imports)]");
+        emit!(w, "    use bumpalo::collections::Vec;");
     }
-    w.push("    #[allow(unused_imports)]".to_string());
-    w.push("    use super::*;".to_string());
+    emit!(w, "    #[allow(unused_imports)]");
+    emit!(w, "    use super::*;");
     for (c, name, fields) in &ctors {
         if fields.is_empty() {
             continue;
@@ -762,20 +740,20 @@ fn emit_compound_sum(
         } else {
             derives.push("Eq");
         }
-        w.push(String::new());
-        w.push(format!("    /// `{}::{name}`.", info.rust));
-        w.push(format!("    #[derive({})]", derives.join(", ")));
-        w.push(format!("    pub struct {name}{ctp} {{"));
+        emit!(w, "");
+        emit!(w, "    /// `{}::{name}`.", info.rust);
+        emit!(w, "    #[derive({})]", derives.join(", "));
+        emit!(w, "    pub struct {name}{ctp} {{");
         for f in fields {
             let rname = rust_field(field_name(f));
             let rty = rust_type(f, infos, "super::", backend)?;
-            w.push(format!("        pub {rname}: {rty},"));
+            emit!(w, "        pub {rname}: {rty},");
         }
-        w.push("    }".to_string());
+        emit!(w, "    }}");
         if data != *attrs {
             let own: Vec<&Field> = data.iter().chain(c.fields.iter()).collect();
-            w.push(String::new());
-            w.push(format!("    impl{ctp} PartialEq for {name}{ctp} {{"));
+            emit!(w, "");
+            emit!(w, "    impl{ctp} PartialEq for {name}{ctp} {{");
             if !own.is_empty() {
                 let cond = own
                     .iter()
@@ -785,43 +763,40 @@ fn emit_compound_sum(
                     })
                     .collect::<Vec<_>>()
                     .join(" && ");
-                w.push("        fn eq(&self, other: &Self) -> bool {".to_string());
-                w.push(format!("            {cond}"));
+                emit!(w, "        fn eq(&self, other: &Self) -> bool {{");
+                emit!(w, "            {cond}");
             } else {
-                w.push("        fn eq(&self, _other: &Self) -> bool {".to_string());
-                w.push("            true".to_string());
+                emit!(w, "        fn eq(&self, _other: &Self) -> bool {{");
+                emit!(w, "            true");
             }
-            w.push("        }".to_string());
-            w.push("    }".to_string());
+            emit!(w, "        }}");
+            emit!(w, "    }}");
         }
         if backend == Backend::Arena {
-            w.push(String::new());
-            w.push(format!(
-                "    /// A mutable construction handle to a `{}` payload.",
-                c.name
-            ));
-            w.push(format!("    pub type {name}Mut<'a> = &'a mut {name}{ctp};"));
+            emit!(w, "");
+            emit!(w, "    /// A mutable construction handle to a `{}` payload.", c.name);
+            emit!(w, "    pub type {name}Mut<'a> = &'a mut {name}{ctp};");
         }
     }
-    w.push("}".to_string());
-    w.push(String::new());
+    emit!(w, "}}");
+    emit!(w, "");
 
     let mut derives = vec!["Debug", "PartialEq", "Eq"];
     if backend == Backend::Owned {
         derives.insert(0, "Clone");
     }
-    w.push(format!("#[derive({})]", derives.join(", ")));
-    w.push(format!("pub enum {}{tp} {{", info.rust));
+    emit!(w, "#[derive({})]", derives.join(", "));
+    emit!(w, "pub enum {}{tp} {{", info.rust);
     for (_, name, fields) in &ctors {
         if fields.is_empty() {
-            w.push(format!("    {name},"));
+            emit!(w, "    {name},");
         } else if backend == Backend::Arena {
-            w.push(format!("    {name}({mod_name}::{name}Mut<'a>),"));
+            emit!(w, "    {name}({mod_name}::{name}Mut<'a>),");
         } else {
-            w.push(format!("    {name}(Box<{mod_name}::{name}>),"));
+            emit!(w, "    {name}(Box<{mod_name}::{name}>),");
         }
     }
-    w.push("}".to_string());
+    emit!(w, "}}");
     Ok(())
 }
 
@@ -866,19 +841,19 @@ fn emit_to_owned(w: &mut Vec<String>, info: &TypeInfo, infos: &HashMap<String, T
     let tp = info.tp();
     let target = format!("crate::owned::{}", info.rust);
     if info.kind == InfoKind::Product {
-        w.push(String::new());
-        w.push(format!("impl{tp} {}{tp} {{", info.rust));
-        w.push("    /// Deep-convert this node into the self-owned tree.".to_string());
-        w.push(format!("    pub fn to_owned(&self) -> {target} {{"));
-        w.push(format!("        {target} {{"));
+        emit!(w, "");
+        emit!(w, "impl{tp} {}{tp} {{", info.rust);
+        emit!(w, "    /// Deep-convert this node into the self-owned tree.");
+        emit!(w, "    pub fn to_owned(&self) -> {target} {{");
+        emit!(w, "        {target} {{");
         for f in info.attributes.iter().chain(info.fields.iter()) {
             let rname = rust_field(field_name(f));
             let expr = to_owned_expr(f, infos);
-            w.push(format!("            {rname}: {expr},"));
+            emit!(w, "            {rname}: {expr},");
         }
-        w.push("        }".to_string());
-        w.push("    }".to_string());
-        w.push("}".to_string());
+        emit!(w, "        }}");
+        emit!(w, "    }}");
+        emit!(w, "}}");
         return;
     }
     let mod_name = uncamel(&info.rust);
@@ -889,41 +864,37 @@ fn emit_to_owned(w: &mut Vec<String>, info: &TypeInfo, infos: &HashMap<String, T
             continue;
         }
         let ctp = payload_tp(&info.attributes, c, infos);
-        w.push(String::new());
-        w.push(format!("impl{ctp} {mod_name}::{name}{ctp} {{"));
-        w.push("    /// Deep-convert this payload into the self-owned tree.".to_string());
-        w.push(format!(
-            "    pub fn to_owned(&self) -> crate::owned::{mod_name}::{name} {{"
-        ));
-        w.push(format!("        crate::owned::{mod_name}::{name} {{"));
+        emit!(w, "");
+        emit!(w, "impl{ctp} {mod_name}::{name}{ctp} {{");
+        emit!(w, "    /// Deep-convert this payload into the self-owned tree.");
+        emit!(w, "    pub fn to_owned(&self) -> crate::owned::{mod_name}::{name} {{");
+        emit!(w, "        crate::owned::{mod_name}::{name} {{");
         for f in fields {
             let rname = rust_field(field_name(f));
             let expr = to_owned_expr(f, infos);
-            w.push(format!("            {rname}: {expr},"));
+            emit!(w, "            {rname}: {expr},");
         }
-        w.push("        }".to_string());
-        w.push("    }".to_string());
-        w.push("}".to_string());
+        emit!(w, "        }}");
+        emit!(w, "    }}");
+        emit!(w, "}}");
     }
-    w.push(String::new());
-    w.push(format!("impl{tp} {}{tp} {{", info.rust));
-    w.push("    /// Deep-convert this node into the self-owned tree.".to_string());
-    w.push(format!("    pub fn to_owned(&self) -> {target} {{"));
-    w.push("        match self {".to_string());
+    emit!(w, "");
+    emit!(w, "impl{tp} {}{tp} {{", info.rust);
+    emit!(w, "    /// Deep-convert this node into the self-owned tree.");
+    emit!(w, "    pub fn to_owned(&self) -> {target} {{");
+    emit!(w, "        match self {{");
     for c in &info.constructors {
         let name = camel(&c.name);
         if info.attributes.is_empty() && c.fields.is_empty() {
-            w.push(format!("            Self::{name} => {target}::{name},"));
+            emit!(w, "            Self::{name} => {target}::{name},");
         } else {
-            w.push(format!("            Self::{name}(p) =>"));
-            w.push(format!(
-                "                {target}::{name}(Box::new((**p).to_owned())),"
-            ));
+            emit!(w, "            Self::{name}(p) =>");
+            emit!(w, "                {target}::{name}(Box::new((**p).to_owned())),");
         }
     }
-    w.push("        }".to_string());
-    w.push("    }".to_string());
-    w.push("}".to_string());
+    emit!(w, "        }}");
+    emit!(w, "    }}");
+    emit!(w, "}}");
 }
 
 fn emit_attr_setters(
@@ -942,37 +913,30 @@ fn emit_attr_setters(
         let aname = field_name(a);
         let ty = rust_type(a, infos, "", backend)?;
         let field = rust_field(aname);
-        w.push(format!("impl{tp} {}{tp} {{", info.rust));
-        w.push(format!("    /// Set the `{aname}` attribute."));
-        w.push(format!(
-            "    pub fn with_{aname}(mut self, v: {ty}) -> Self {{"
-        ));
+        emit!(w, "impl{tp} {}{tp} {{", info.rust);
+        emit!(w, "    /// Set the `{aname}` attribute.");
+        emit!(w, "    pub fn with_{aname}(mut self, v: {ty}) -> Self {{");
         if info.kind == InfoKind::Product {
-            w.push(format!("        self.{field} = v;"));
-            w.push("        self".to_string());
+            emit!(w, "        self.{field} = v;");
+            emit!(w, "        self");
         } else {
-            w.push(format!("        self.set_{aname}(v);"));
-            w.push("        self".to_string());
+            emit!(w, "        self.set_{aname}(v);");
+            emit!(w, "        self");
         }
-        w.push("    }".to_string());
-        w.push(format!(
-            "    /// Set the `{aname}` attribute in place, with no rebuild."
-        ));
-        w.push(format!("    pub fn set_{aname}(&mut self, v: {ty}) {{"));
+        emit!(w, "    }}");
+        emit!(w, "    /// Set the `{aname}` attribute in place, with no rebuild.");
+        emit!(w, "    pub fn set_{aname}(&mut self, v: {ty}) {{");
         if info.kind == InfoKind::Product {
-            w.push(format!("        self.{field} = v;"));
+            emit!(w, "        self.{field} = v;");
         } else {
-            w.push("        match self {".to_string());
+            emit!(w, "        match self {{");
             for c in &info.constructors {
-                w.push(format!(
-                    "            Self::{}(p) => p.set_{aname}(v),",
-                    camel(&c.name)
-                ));
+                emit!(w, "            Self::{}(p) => p.set_{aname}(v),", camel(&c.name));
             }
-            w.push("        }".to_string());
+            emit!(w, "        }}");
         }
-        w.push("    }".to_string());
-        w.push("}".to_string());
+        emit!(w, "    }}");
+        emit!(w, "}}");
         if info.kind != InfoKind::Product {
             for c in &info.constructors {
                 let name = camel(&c.name);
@@ -981,22 +945,20 @@ fn emit_attr_setters(
                 } else {
                     ""
                 };
-                w.push(format!("impl{ctp} {mod_name}::{name}{ctp} {{"));
-                w.push(format!("    /// Set the `{aname}` attribute."));
-                w.push(format!(
-                    "    pub fn with_{aname}(mut self, v: {ty}) -> Self {{"
-                ));
-                w.push(format!("        self.{field} = v;"));
-                w.push("        self".to_string());
-                w.push("    }".to_string());
-                w.push(format!("    /// Set the `{aname}` attribute in place."));
-                w.push(format!("    pub fn set_{aname}(&mut self, v: {ty}) {{"));
-                w.push(format!("        self.{field} = v;"));
-                w.push("    }".to_string());
-                w.push("}".to_string());
+                emit!(w, "impl{ctp} {mod_name}::{name}{ctp} {{");
+                emit!(w, "    /// Set the `{aname}` attribute.");
+                emit!(w, "    pub fn with_{aname}(mut self, v: {ty}) -> Self {{");
+                emit!(w, "        self.{field} = v;");
+                emit!(w, "        self");
+                emit!(w, "    }}");
+                emit!(w, "    /// Set the `{aname}` attribute in place.");
+                emit!(w, "    pub fn set_{aname}(&mut self, v: {ty}) {{");
+                emit!(w, "        self.{field} = v;");
+                emit!(w, "    }}");
+                emit!(w, "}}");
             }
         }
-        w.push(String::new());
+        emit!(w, "");
     }
     Ok(())
 }
@@ -1013,11 +975,7 @@ fn accessor_bodies(
 
     if f.seq {
         if f.ty == "identifier" {
-            return (
-                "dbt_asdl::IdentList<'a>".to_string(),
-                format!("&{b}"),
-                format!("&{b}"),
-            );
+            return ("dbt_asdl::IdentList<'a>".to_string(), format!("&{b}"), format!("&{b}"));
         }
         if f.ty == "string" {
             return (
@@ -1090,31 +1048,26 @@ fn accessor_bodies(
 fn emit_either_ref(wv: &mut Vec<String>, info: &TypeInfo) {
     let r = &info.rust;
     let tp = info.tp();
-    wv.push(format!(
-        "/// A read-only reference to a `{}` node, in either tree",
-        info.name
-    ));
-    wv.push("/// representation: what every accessor takes and returns.".to_string());
-    wv.push("#[derive(Clone, Copy, Debug)]".to_string());
-    wv.push(format!("pub enum {r}Ref<'a> {{"));
-    wv.push(format!("    Owned(&'a owned::{r}),"));
-    wv.push(format!("    Arena(&'a arena::{r}{tp}),"));
-    wv.push("}".to_string());
-    wv.push(String::new());
-    wv.push(format!("impl<'a> From<&'a owned::{r}> for {r}Ref<'a> {{"));
-    wv.push(format!("    fn from(node: &'a owned::{r}) -> Self {{"));
-    wv.push(format!("        {r}Ref::Owned(node)"));
-    wv.push("    }".to_string());
-    wv.push("}".to_string());
-    wv.push(String::new());
-    wv.push(format!(
-        "impl<'a> From<&'a arena::{r}{tp}> for {r}Ref<'a> {{"
-    ));
-    wv.push(format!("    fn from(node: &'a arena::{r}{tp}) -> Self {{"));
-    wv.push(format!("        {r}Ref::Arena(node)"));
-    wv.push("    }".to_string());
-    wv.push("}".to_string());
-    wv.push(String::new());
+    emit!(wv, "/// A read-only reference to a `{}` node, in either tree", info.name);
+    emit!(wv, "/// representation: what every accessor takes and returns.");
+    emit!(wv, "#[derive(Clone, Copy, Debug)]");
+    emit!(wv, "pub enum {r}Ref<'a> {{");
+    emit!(wv, "    Owned(&'a owned::{r}),");
+    emit!(wv, "    Arena(&'a arena::{r}{tp}),");
+    emit!(wv, "}}");
+    emit!(wv, "");
+    emit!(wv, "impl<'a> From<&'a owned::{r}> for {r}Ref<'a> {{");
+    emit!(wv, "    fn from(node: &'a owned::{r}) -> Self {{");
+    emit!(wv, "        {r}Ref::Owned(node)");
+    emit!(wv, "    }}");
+    emit!(wv, "}}");
+    emit!(wv, "");
+    emit!(wv, "impl<'a> From<&'a arena::{r}{tp}> for {r}Ref<'a> {{");
+    emit!(wv, "    fn from(node: &'a arena::{r}{tp}) -> Self {{");
+    emit!(wv, "        {r}Ref::Arena(node)");
+    emit!(wv, "    }}");
+    emit!(wv, "}}");
+    emit!(wv, "");
 }
 
 fn emit_product_view(wv: &mut Vec<String>, info: &TypeInfo, infos: &HashMap<String, TypeInfo>) {
@@ -1123,25 +1076,22 @@ fn emit_product_view(wv: &mut Vec<String>, info: &TypeInfo, infos: &HashMap<Stri
     if fields.is_empty() {
         return;
     }
-    wv.push(format!("impl<'a> {r}Ref<'a> {{"));
+    emit!(wv, "impl<'a> {r}Ref<'a> {{");
     for (i, f) in fields.iter().enumerate() {
         if i > 0 {
-            wv.push(String::new());
+            emit!(wv, "");
         }
         let fname = field_name(f);
         let (ret, ob, ab) = accessor_bodies(f, infos, "n");
-        wv.push(format!("    /// The `{fname}` field."));
-        wv.push(format!(
-            "    pub fn {}(self) -> {ret} {{",
-            rust_field(fname)
-        ));
-        wv.push("        match self {".to_string());
-        wv.push(format!("            {r}Ref::Owned(n) => {ob},"));
-        wv.push(format!("            {r}Ref::Arena(n) => {ab},"));
-        wv.push("        }".to_string());
-        wv.push("    }".to_string());
+        emit!(wv, "    /// The `{fname}` field.");
+        emit!(wv, "    pub fn {}(self) -> {ret} {{", rust_field(fname));
+        emit!(wv, "        match self {{");
+        emit!(wv, "            {r}Ref::Owned(n) => {ob},");
+        emit!(wv, "            {r}Ref::Arena(n) => {ab},");
+        emit!(wv, "        }}");
+        emit!(wv, "    }}");
     }
-    wv.push("}".to_string());
+    emit!(wv, "}}");
 }
 
 fn emit_product_getters(wv: &mut Vec<String>, info: &TypeInfo, infos: &HashMap<String, TypeInfo>) {
@@ -1150,21 +1100,21 @@ fn emit_product_getters(wv: &mut Vec<String>, info: &TypeInfo, infos: &HashMap<S
         return;
     }
     let tp = info.tp();
-    wv.push(format!("impl{tp} {}{tp} {{", info.rust));
+    emit!(wv, "impl{tp} {}{tp} {{", info.rust);
     for (i, f) in fields.iter().enumerate() {
         if i > 0 {
-            wv.push(String::new());
+            emit!(wv, "");
         }
         let fname = field_name(f);
         let rfield = rust_field(fname);
         let (ret, _, _) = accessor_bodies(f, infos, "self");
         let expr = format!("self.{rfield}");
-        wv.push(format!("    /// The `{fname}` field."));
-        wv.push(format!("    pub fn {rfield}(&self) -> {ret} {{"));
-        wv.push(format!("        {expr}"));
-        wv.push("    }".to_string());
+        emit!(wv, "    /// The `{fname}` field.");
+        emit!(wv, "    pub fn {rfield}(&self) -> {ret} {{");
+        emit!(wv, "        {expr}");
+        emit!(wv, "    }}");
     }
-    wv.push("}".to_string());
+    emit!(wv, "}}");
 }
 
 fn emit_variant_view(
@@ -1184,41 +1134,34 @@ fn emit_variant_view(
     if fields.is_empty() {
         return None;
     }
-    wv.push(format!("/// `{r}::{name} {{ .. }}`."));
-    wv.push("#[derive(Clone, Copy, Debug)]".to_string());
-    wv.push(format!("pub struct {vname}<'a> {{"));
-    wv.push(format!("    node: {r}Ref<'a>,"));
-    wv.push("}".to_string());
-    wv.push(String::new());
-    wv.push(format!("impl<'a> {vname}<'a> {{"));
-    wv.push("    /// The whole node, for `kind()` / `view()` / attribute getters.".to_string());
-    wv.push(format!("    pub fn node(self) -> {r}Ref<'a> {{"));
-    wv.push("        self.node".to_string());
-    wv.push("    }".to_string());
+    emit!(wv, "/// `{r}::{name} {{ .. }}`.");
+    emit!(wv, "#[derive(Clone, Copy, Debug)]");
+    emit!(wv, "pub struct {vname}<'a> {{");
+    emit!(wv, "    node: {r}Ref<'a>,");
+    emit!(wv, "}}");
+    emit!(wv, "");
+    emit!(wv, "impl<'a> {vname}<'a> {{");
+    emit!(wv, "    /// The whole node, for `kind()` / `view()` / attribute getters.");
+    emit!(wv, "    pub fn node(self) -> {r}Ref<'a> {{");
+    emit!(wv, "        self.node");
+    emit!(wv, "    }}");
     for f in fields {
-        wv.push(String::new());
+        emit!(wv, "");
         let fname = field_name(f);
         let (ret, ob, ab) = accessor_bodies(f, infos, "p");
-        wv.push(format!("    /// The `{fname}` field."));
-        wv.push(format!(
-            "    pub fn {}(self) -> {ret} {{",
-            rust_field(fname)
-        ));
-        wv.push("        match self.node {".to_string());
-        wv.push(format!(
-            "            {r}Ref::Owned(owned::{r}::{name}(p)) => {ob},"
-        ));
-        wv.push(format!(
-            "            {r}Ref::Arena(arena::{r}::{name}(p)) => {ab},"
-        ));
-        wv.push(
+        emit!(wv, "    /// The `{fname}` field.");
+        emit!(wv, "    pub fn {}(self) -> {ret} {{", rust_field(fname));
+        emit!(wv, "        match self.node {{");
+        emit!(wv, "            {r}Ref::Owned(owned::{r}::{name}(p)) => {ob},");
+        emit!(wv, "            {r}Ref::Arena(arena::{r}::{name}(p)) => {ab},");
+        emit!(
+            wv,
             "            _ => unreachable!(\"view checked the variant at construction\"),"
-                .to_string(),
         );
-        wv.push("        }".to_string());
-        wv.push("    }".to_string());
+        emit!(wv, "        }}");
+        emit!(wv, "    }}");
     }
-    wv.push("}".to_string());
+    emit!(wv, "}}");
     Some(vname)
 }
 
@@ -1235,178 +1178,155 @@ fn emit_sum_views(wv: &mut Vec<String>, info: &TypeInfo, infos: &HashMap<String,
         .map(|(_, name)| name.clone())
         .collect();
 
-    wv.push("#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]".to_string());
-    wv.push(format!("pub enum {r}Kind {{"));
+    emit!(wv, "#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]");
+    emit!(wv, "pub enum {r}Kind {{");
     for (_, name) in &ctors {
-        wv.push(format!("    {name},"));
+        emit!(wv, "    {name},");
     }
-    wv.push("}".to_string());
-    wv.push(String::new());
+    emit!(wv, "}}");
+    emit!(wv, "");
 
     emit_either_ref(wv, info);
 
-    wv.push(format!("impl<'a> {r}Ref<'a> {{"));
-    wv.push("    /// The node's constructor, without borrowing its payload.".to_string());
-    wv.push(format!("    pub fn kind(self) -> {r}Kind {{"));
-    wv.push("        match self {".to_string());
-    wv.push(format!("            {r}Ref::Owned(n) => match n {{"));
+    emit!(wv, "impl<'a> {r}Ref<'a> {{");
+    emit!(wv, "    /// The node's constructor, without borrowing its payload.");
+    emit!(wv, "    pub fn kind(self) -> {r}Kind {{");
+    emit!(wv, "        match self {{");
+    emit!(wv, "            {r}Ref::Owned(n) => match n {{");
     for (_, name) in &ctors {
         let pat = if bare.contains(name) {
             name.clone()
         } else {
             format!("{name}(_)")
         };
-        wv.push(format!(
-            "                owned::{r}::{pat} => {r}Kind::{name},"
-        ));
+        emit!(wv, "                owned::{r}::{pat} => {r}Kind::{name},");
     }
-    wv.push("            },".to_string());
-    wv.push(format!("            {r}Ref::Arena(n) => match n {{"));
+    emit!(wv, "            }},");
+    emit!(wv, "            {r}Ref::Arena(n) => match n {{");
     for (_, name) in &ctors {
         let pat = if bare.contains(name) {
             name.clone()
         } else {
             format!("{name}(_)")
         };
-        wv.push(format!(
-            "                arena::{r}::{pat} => {r}Kind::{name},"
-        ));
+        emit!(wv, "                arena::{r}::{pat} => {r}Kind::{name},");
     }
-    wv.push("            },".to_string());
-    wv.push("        }".to_string());
-    wv.push("    }".to_string());
+    emit!(wv, "            }},");
+    emit!(wv, "        }}");
+    emit!(wv, "    }}");
     for a in &info.attributes {
         let aname = field_name(a);
         let (ret, ob, ab) = accessor_bodies(a, infos, "p");
-        wv.push(String::new());
-        wv.push(format!("    /// The `{aname}` attribute."));
-        wv.push(format!(
-            "    pub fn {}(self) -> {ret} {{",
-            rust_field(aname)
-        ));
-        wv.push("        match self {".to_string());
-        wv.push(format!("            {r}Ref::Owned(n) => match n {{"));
+        emit!(wv, "");
+        emit!(wv, "    /// The `{aname}` attribute.");
+        emit!(wv, "    pub fn {}(self) -> {ret} {{", rust_field(aname));
+        emit!(wv, "        match self {{");
+        emit!(wv, "            {r}Ref::Owned(n) => match n {{");
         for (_, name) in &ctors {
-            wv.push(format!("                owned::{r}::{name}(p) => {ob},"));
+            emit!(wv, "                owned::{r}::{name}(p) => {ob},");
         }
-        wv.push("            },".to_string());
-        wv.push(format!("            {r}Ref::Arena(n) => match n {{"));
+        emit!(wv, "            }},");
+        emit!(wv, "            {r}Ref::Arena(n) => match n {{");
         for (_, name) in &ctors {
-            wv.push(format!("                arena::{r}::{name}(p) => {ab},"));
+            emit!(wv, "                arena::{r}::{name}(p) => {ab},");
         }
-        wv.push("            },".to_string());
-        wv.push("        }".to_string());
-        wv.push("    }".to_string());
+        emit!(wv, "            }},");
+        emit!(wv, "        }}");
+        emit!(wv, "    }}");
     }
-    wv.push(String::new());
-    wv.push("    /// The borrowed view of this node, for matching.".to_string());
-    wv.push(format!("    pub fn view(self) -> {r}View<'a> {{"));
-    wv.push("        match self {".to_string());
-    wv.push(format!("            {r}Ref::Owned(n) => match n {{"));
+    emit!(wv, "");
+    emit!(wv, "    /// The borrowed view of this node, for matching.");
+    emit!(wv, "    pub fn view(self) -> {r}View<'a> {{");
+    emit!(wv, "        match self {{");
+    emit!(wv, "            {r}Ref::Owned(n) => match n {{");
     for (_, name) in &ctors {
         if bare.contains(name) {
-            wv.push(format!(
-                "                owned::{r}::{name} => {r}View::{name},"
-            ));
+            emit!(wv, "                owned::{r}::{name} => {r}View::{name},");
         } else {
-            wv.push(format!("                owned::{r}::{name}(_) =>"));
-            wv.push(format!(
-                "                    {r}View::{name}({r}{name}View {{ node: self }}),"
-            ));
+            emit!(wv, "                owned::{r}::{name}(_) =>");
+            emit!(wv, "                    {r}View::{name}({r}{name}View {{ node: self }}),");
         }
     }
-    wv.push("            },".to_string());
-    wv.push(format!("            {r}Ref::Arena(n) => match n {{"));
+    emit!(wv, "            }},");
+    emit!(wv, "            {r}Ref::Arena(n) => match n {{");
     for (_, name) in &ctors {
         if bare.contains(name) {
-            wv.push(format!(
-                "                arena::{r}::{name} => {r}View::{name},"
-            ));
+            emit!(wv, "                arena::{r}::{name} => {r}View::{name},");
         } else {
-            wv.push(format!("                arena::{r}::{name}(_) =>"));
-            wv.push(format!(
-                "                    {r}View::{name}({r}{name}View {{ node: self }}),"
-            ));
+            emit!(wv, "                arena::{r}::{name}(_) =>");
+            emit!(wv, "                    {r}View::{name}({r}{name}View {{ node: self }}),");
         }
     }
-    wv.push("            },".to_string());
-    wv.push("        }".to_string());
-    wv.push("    }".to_string());
+    emit!(wv, "            }},");
+    emit!(wv, "        }}");
+    emit!(wv, "    }}");
     for (_, name) in &ctors {
         if bare.contains(name) {
             continue;
         }
-        wv.push(String::new());
-        wv.push(format!(
-            "    /// The node as `{name}`, or None. Composes with `?`."
-        ));
-        wv.push(format!(
-            "    pub fn as_{}(self) -> Option<{r}{name}View<'a>> {{",
-            uncamel(name)
-        ));
-        wv.push("        match self.view() {".to_string());
-        wv.push(format!("            {r}View::{name}(v) => Some(v),"));
-        wv.push("            _ => None,".to_string());
-        wv.push("        }".to_string());
-        wv.push("    }".to_string());
+        emit!(wv, "");
+        emit!(wv, "    /// The node as `{name}`, or None. Composes with `?`.");
+        emit!(wv, "    pub fn as_{}(self) -> Option<{r}{name}View<'a>> {{", uncamel(name));
+        emit!(wv, "        match self.view() {{");
+        emit!(wv, "            {r}View::{name}(v) => Some(v),");
+        emit!(wv, "            _ => None,");
+        emit!(wv, "        }}");
+        emit!(wv, "    }}");
     }
-    wv.push("}".to_string());
-    wv.push(String::new());
-    wv.push(format!(
-        "/// A borrowed view of a `{}` node: one arm per constructor.",
-        info.name
-    ));
-    wv.push("#[derive(Clone, Copy, Debug)]".to_string());
-    wv.push(format!("pub enum {r}View<'a> {{"));
+    emit!(wv, "}}");
+    emit!(wv, "");
+    emit!(wv, "/// A borrowed view of a `{}` node: one arm per constructor.", info.name);
+    emit!(wv, "#[derive(Clone, Copy, Debug)]");
+    emit!(wv, "pub enum {r}View<'a> {{");
     for (_, name) in &ctors {
         if bare.contains(name) {
-            wv.push(format!("    {name},"));
+            emit!(wv, "    {name},");
         } else {
-            wv.push(format!("    {name}({r}{name}View<'a>),"));
+            emit!(wv, "    {name}({r}{name}View<'a>),");
         }
     }
-    wv.push("}".to_string());
+    emit!(wv, "}}");
     for (c, name) in &ctors {
         if bare.contains(name) {
             continue;
         }
-        wv.push(String::new());
+        emit!(wv, "");
         emit_variant_view(wv, info, c, infos);
     }
 }
 
 fn emit_list_iter(wv: &mut Vec<String>, name: &str, item: &str) {
-    wv.push(format!("/// An iterator over a `{name}`."));
-    wv.push(format!("pub struct {name}Iter<'a> {{"));
-    wv.push(format!("    list: {name}<'a>,"));
-    wv.push("    next: usize,".to_string());
-    wv.push("}".to_string());
-    wv.push(String::new());
-    wv.push(format!("impl<'a> Iterator for {name}Iter<'a> {{"));
-    wv.push(format!("    type Item = {item};"));
-    wv.push(String::new());
-    wv.push("    fn next(&mut self) -> Option<Self::Item> {".to_string());
-    wv.push("        let item = self.list.get(self.next)?;".to_string());
-    wv.push("        self.next += 1;".to_string());
-    wv.push("        Some(item)".to_string());
-    wv.push("    }".to_string());
-    wv.push(String::new());
-    wv.push("    fn size_hint(&self) -> (usize, Option<usize>) {".to_string());
-    wv.push("        let remaining = self.list.len() - self.next;".to_string());
-    wv.push("        (remaining, Some(remaining))".to_string());
-    wv.push("    }".to_string());
-    wv.push("}".to_string());
-    wv.push(String::new());
-    wv.push(format!("impl ExactSizeIterator for {name}Iter<'_> {{}}"));
-    wv.push(String::new());
-    wv.push(format!("impl<'a> IntoIterator for {name}<'a> {{"));
-    wv.push(format!("    type Item = {item};"));
-    wv.push(format!("    type IntoIter = {name}Iter<'a>;"));
-    wv.push(String::new());
-    wv.push("    fn into_iter(self) -> Self::IntoIter {".to_string());
-    wv.push("        self.iter()".to_string());
-    wv.push("    }".to_string());
-    wv.push("}".to_string());
+    emit!(wv, "/// An iterator over a `{name}`.");
+    emit!(wv, "pub struct {name}Iter<'a> {{");
+    emit!(wv, "    list: {name}<'a>,");
+    emit!(wv, "    next: usize,");
+    emit!(wv, "}}");
+    emit!(wv, "");
+    emit!(wv, "impl<'a> Iterator for {name}Iter<'a> {{");
+    emit!(wv, "    type Item = {item};");
+    emit!(wv, "");
+    emit!(wv, "    fn next(&mut self) -> Option<Self::Item> {{");
+    emit!(wv, "        let item = self.list.get(self.next)?;");
+    emit!(wv, "        self.next += 1;");
+    emit!(wv, "        Some(item)");
+    emit!(wv, "    }}");
+    emit!(wv, "");
+    emit!(wv, "    fn size_hint(&self) -> (usize, Option<usize>) {{");
+    emit!(wv, "        let remaining = self.list.len() - self.next;");
+    emit!(wv, "        (remaining, Some(remaining))");
+    emit!(wv, "    }}");
+    emit!(wv, "}}");
+    emit!(wv, "");
+    emit!(wv, "impl ExactSizeIterator for {name}Iter<'_> {{}}");
+    emit!(wv, "");
+    emit!(wv, "impl<'a> IntoIterator for {name}<'a> {{");
+    emit!(wv, "    type Item = {item};");
+    emit!(wv, "    type IntoIter = {name}Iter<'a>;");
+    emit!(wv, "");
+    emit!(wv, "    fn into_iter(self) -> Self::IntoIter {{");
+    emit!(wv, "        self.iter()");
+    emit!(wv, "    }}");
+    emit!(wv, "}}");
 }
 
 fn emit_list_view(wv: &mut Vec<String>, info: &TypeInfo) {
@@ -1416,71 +1336,60 @@ fn emit_list_view(wv: &mut Vec<String>, info: &TypeInfo) {
     } else {
         format!("arena::{r}{}", info.tp())
     };
-    wv.push(format!(
-        "/// A borrowed list of `{}` nodes, in either tree",
-        info.name
-    ));
-    wv.push("/// representation.".to_string());
-    wv.push("#[derive(Clone, Copy, Debug)]".to_string());
-    wv.push(format!("pub enum {r}List<'a> {{"));
-    wv.push(format!("    Owned(&'a [owned::{r}]),"));
-    wv.push(format!("    Arena(&'a [{arena_item}]),"));
-    wv.push("}".to_string());
-    wv.push(String::new());
-    wv.push(format!("impl<'a> {r}List<'a> {{"));
-    wv.push("    /// The number of nodes in the list.".to_string());
-    wv.push("    pub fn len(self) -> usize {".to_string());
-    wv.push("        match self {".to_string());
-    wv.push(format!("            {r}List::Owned(s) => s.len(),"));
-    wv.push(format!("            {r}List::Arena(s) => s.len(),"));
-    wv.push("        }".to_string());
-    wv.push("    }".to_string());
-    wv.push(String::new());
-    wv.push("    /// Whether the list holds no nodes.".to_string());
-    wv.push("    pub fn is_empty(self) -> bool {".to_string());
-    wv.push("        self.len() == 0".to_string());
-    wv.push("    }".to_string());
-    wv.push(String::new());
-    wv.push("    /// The node at `i`, or None when out of bounds.".to_string());
-    wv.push(format!(
-        "    pub fn get(self, i: usize) -> Option<{r}Ref<'a>> {{"
-    ));
-    wv.push("        match self {".to_string());
-    wv.push(format!(
-        "            {r}List::Owned(s) => s.get(i).map({r}Ref::Owned),"
-    ));
+    emit!(wv, "/// A borrowed list of `{}` nodes, in either tree", info.name);
+    emit!(wv, "/// representation.");
+    emit!(wv, "#[derive(Clone, Copy, Debug)]");
+    emit!(wv, "pub enum {r}List<'a> {{");
+    emit!(wv, "    Owned(&'a [owned::{r}]),");
+    emit!(wv, "    Arena(&'a [{arena_item}]),");
+    emit!(wv, "}}");
+    emit!(wv, "");
+    emit!(wv, "impl<'a> {r}List<'a> {{");
+    emit!(wv, "    /// The number of nodes in the list.");
+    emit!(wv, "    pub fn len(self) -> usize {{");
+    emit!(wv, "        match self {{");
+    emit!(wv, "            {r}List::Owned(s) => s.len(),");
+    emit!(wv, "            {r}List::Arena(s) => s.len(),");
+    emit!(wv, "        }}");
+    emit!(wv, "    }}");
+    emit!(wv, "");
+    emit!(wv, "    /// Whether the list holds no nodes.");
+    emit!(wv, "    pub fn is_empty(self) -> bool {{");
+    emit!(wv, "        self.len() == 0");
+    emit!(wv, "    }}");
+    emit!(wv, "");
+    emit!(wv, "    /// The node at `i`, or None when out of bounds.");
+    emit!(wv, "    pub fn get(self, i: usize) -> Option<{r}Ref<'a>> {{");
+    emit!(wv, "        match self {{");
+    emit!(wv, "            {r}List::Owned(s) => s.get(i).map({r}Ref::Owned),");
     if info.compound() {
-        wv.push(format!(
-            "            {r}List::Arena(s) => s.get(i).copied().map({r}Ref::Arena),"
-        ));
+        emit!(wv, "            {r}List::Arena(s) => s.get(i).copied().map({r}Ref::Arena),");
     } else {
-        wv.push(format!(
-            "            {r}List::Arena(s) => s.get(i).map({r}Ref::Arena),"
-        ));
+        emit!(wv, "            {r}List::Arena(s) => s.get(i).map({r}Ref::Arena),");
     }
-    wv.push("        }".to_string());
-    wv.push("    }".to_string());
-    wv.push(String::new());
-    wv.push("    /// Iterate over the nodes, as `XRef` handles.".to_string());
-    wv.push(format!("    pub fn iter(self) -> {r}ListIter<'a> {{"));
-    wv.push(format!("        {r}ListIter {{ list: self, next: 0 }}"));
-    wv.push("    }".to_string());
-    wv.push("}".to_string());
-    wv.push(String::new());
+    emit!(wv, "        }}");
+    emit!(wv, "    }}");
+    emit!(wv, "");
+    emit!(wv, "    /// Iterate over the nodes, as `XRef` handles.");
+    emit!(wv, "    pub fn iter(self) -> {r}ListIter<'a> {{");
+    emit!(wv, "        {r}ListIter {{ list: self, next: 0 }}");
+    emit!(wv, "    }}");
+    emit!(wv, "}}");
+    emit!(wv, "");
     emit_list_iter(wv, &format!("{r}List"), &format!("{r}Ref<'a>"));
 }
 
 fn emit_simple_sum_sexpr(ws: &mut Vec<String>, info: &TypeInfo) {
-    ws.push(format!("impl Sexpr for {} {{", info.rust));
-    ws.push("    fn write_sexpr(&self, out: &mut String) {".to_string());
-    ws.push("        out.push_str(match self {".to_string());
+    emit!(ws, "impl Sexpr for {} {{", info.rust);
+    emit!(ws, "    fn write_sexpr(&self, out: &mut String) {{");
+    emit!(ws, "        out.push_str(match self {{");
     for c in &info.constructors {
         let cname = camel(&c.name);
-        ws.push(format!("            Self::{cname} => \"{cname}\","));
+        emit!(ws, "            Self::{cname} => \"{cname}\",");
     }
-    ws.push("        });".to_string());
-    ws.push("    }".to_string());
-    ws.push("}".to_string());
+    emit!(ws, "        }});");
+    emit!(ws, "    }}");
+    emit!(ws, "}}");
 }
 
 fn emit_product_fields_sexpr(ws: &mut Vec<String>, fields: &[Field], value: &str, indent: &str) {
@@ -1491,53 +1400,49 @@ fn emit_product_fields_sexpr(ws: &mut Vec<String>, fields: &[Field], value: &str
 }
 
 fn emit_shared_product_sexpr(ws: &mut Vec<String>, info: &TypeInfo) {
-    ws.push(format!("impl Sexpr for {} {{", info.rust));
-    ws.push("    fn write_sexpr(&self, out: &mut String) {".to_string());
-    ws.push(format!("        out.push_str(\"({}\");", info.rust));
+    emit!(ws, "impl Sexpr for {} {{", info.rust);
+    emit!(ws, "    fn write_sexpr(&self, out: &mut String) {{");
+    emit!(ws, "        out.push_str(\"({}\");", info.rust);
     for f in data_attrs(info).iter().chain(info.fields.iter()) {
         let rname = rust_field(field_name(f));
         emit_field_sexpr(ws, f, &format!("self.{rname}"), "        ");
     }
-    ws.push("        out.push(')');".to_string());
-    ws.push("    }".to_string());
-    ws.push("}".to_string());
+    emit!(ws, "        out.push(')');");
+    emit!(ws, "    }}");
+    emit!(ws, "}}");
 }
 
 fn emit_product_ref_sexpr(ws: &mut Vec<String>, info: &TypeInfo) {
-    ws.push(format!("impl Sexpr for {}Ref<'_> {{", info.rust));
-    ws.push("    fn write_sexpr(&self, out: &mut String) {".to_string());
-    ws.push(format!("        out.push_str(\"({}\");", info.rust));
+    emit!(ws, "impl Sexpr for {}Ref<'_> {{", info.rust);
+    emit!(ws, "    fn write_sexpr(&self, out: &mut String) {{");
+    emit!(ws, "        out.push_str(\"({}\");", info.rust);
     let mut fields = data_attrs(info);
     fields.extend(info.fields.iter().cloned());
     emit_product_fields_sexpr(ws, &fields, "self", "        ");
-    ws.push("        out.push(')');".to_string());
-    ws.push("    }".to_string());
-    ws.push("}".to_string());
+    emit!(ws, "        out.push(')');");
+    emit!(ws, "    }}");
+    emit!(ws, "}}");
 }
 
 fn emit_sum_ref_sexpr(ws: &mut Vec<String>, info: &TypeInfo) {
     let r = &info.rust;
     let data = data_attrs(info);
-    ws.push(format!("impl Sexpr for {r}Ref<'_> {{"));
-    ws.push("    fn write_sexpr(&self, out: &mut String) {".to_string());
-    ws.push("        match self.view() {".to_string());
+    emit!(ws, "impl Sexpr for {r}Ref<'_> {{");
+    emit!(ws, "    fn write_sexpr(&self, out: &mut String) {{");
+    emit!(ws, "        match self.view() {{");
     for c in &info.constructors {
         let name = camel(&c.name);
         if info.attributes.is_empty() && c.fields.is_empty() {
-            ws.push(format!(
-                "            {r}View::{name} => out.push_str(\"{name}\"),"
-            ));
+            emit!(ws, "            {r}View::{name} => out.push_str(\"{name}\"),");
             continue;
         }
         let mut own = data.clone();
         own.extend(c.fields.iter().cloned());
         if own.is_empty() {
-            ws.push(format!(
-                "            {r}View::{name}(_) => out.push_str(\"{name}\"),"
-            ));
+            emit!(ws, "            {r}View::{name}(_) => out.push_str(\"{name}\"),");
             continue;
         }
-        ws.push(format!("            {r}View::{name}(v) => {{"));
+        emit!(ws, "            {r}View::{name}(v) => {{");
         let tests: Vec<Option<String>> = own
             .iter()
             .map(|f| default_test_rs(f, &format!("v.{}()", rust_field(field_name(f)))))
@@ -1548,66 +1453,66 @@ fn emit_sum_ref_sexpr(ws: &mut Vec<String>, info: &TypeInfo) {
             None
         };
         let indent = if let Some(cond) = &atom_cond {
-            ws.push(format!("                if {cond} {{"));
-            ws.push(format!("                    out.push_str(\"{name}\");"));
-            ws.push("                } else {".to_string());
+            emit!(ws, "                if {cond} {{");
+            emit!(ws, "                    out.push_str(\"{name}\");");
+            emit!(ws, "                }} else {{");
             "        "
         } else {
             ""
         };
-        ws.push(format!("{indent}            out.push_str(\"({name}\");"));
+        emit!(ws, "{indent}            out.push_str(\"({name}\");");
         let field_indent = format!("            {indent}");
         for f in &own {
             let rname = rust_field(field_name(f));
             emit_field_sexpr(ws, f, &format!("v.{rname}()"), &field_indent);
         }
-        ws.push(format!("{indent}            out.push(')');"));
+        emit!(ws, "{indent}            out.push(')');");
         if atom_cond.is_some() {
-            ws.push("                }".to_string());
+            emit!(ws, "                }}");
         }
-        ws.push("            }".to_string());
+        emit!(ws, "            }}");
     }
-    ws.push("        }".to_string());
-    ws.push("    }".to_string());
-    ws.push("}".to_string());
+    emit!(ws, "        }}");
+    emit!(ws, "    }}");
+    emit!(ws, "}}");
 }
 
 fn emit_list_sexpr(ws: &mut Vec<String>, name: &str) {
-    ws.push(format!("impl Sexpr for {name}<'_> {{"));
-    ws.push("    fn write_sexpr(&self, out: &mut String) {".to_string());
-    ws.push("        out.push('[');".to_string());
-    ws.push("        for (i, item) in self.iter().enumerate() {".to_string());
-    ws.push("            if i > 0 {".to_string());
-    ws.push("                out.push(' ');".to_string());
-    ws.push("            }".to_string());
-    ws.push("            item.write_sexpr(out);".to_string());
-    ws.push("        }".to_string());
-    ws.push("        out.push(']');".to_string());
-    ws.push("    }".to_string());
-    ws.push("}".to_string());
+    emit!(ws, "impl Sexpr for {name}<'_> {{");
+    emit!(ws, "    fn write_sexpr(&self, out: &mut String) {{");
+    emit!(ws, "        out.push('[');");
+    emit!(ws, "        for (i, item) in self.iter().enumerate() {{");
+    emit!(ws, "            if i > 0 {{");
+    emit!(ws, "                out.push(' ');");
+    emit!(ws, "            }}");
+    emit!(ws, "            item.write_sexpr(out);");
+    emit!(ws, "        }}");
+    emit!(ws, "        out.push(']');");
+    emit!(ws, "    }}");
+    emit!(ws, "}}");
 }
 
 fn emit_delegating_sexpr(ws: &mut Vec<String>, info: &TypeInfo) {
     let r = &info.rust;
-    ws.push(format!("impl Sexpr for owned::{r} {{"));
-    ws.push("    fn write_sexpr(&self, out: &mut String) {".to_string());
-    ws.push(format!("        {r}Ref::Owned(self).write_sexpr(out);"));
-    ws.push("    }".to_string());
-    ws.push("}".to_string());
+    emit!(ws, "impl Sexpr for owned::{r} {{");
+    emit!(ws, "    fn write_sexpr(&self, out: &mut String) {{");
+    emit!(ws, "        {r}Ref::Owned(self).write_sexpr(out);");
+    emit!(ws, "    }}");
+    emit!(ws, "}}");
     if info.arena {
-        ws.push(String::new());
-        ws.push(format!("impl<'a> Sexpr for &'a arena::{r}<'a> {{"));
-        ws.push("    fn write_sexpr(&self, out: &mut String) {".to_string());
-        ws.push(format!("        {r}Ref::Arena(self).write_sexpr(out);"));
-        ws.push("    }".to_string());
-        ws.push("}".to_string());
+        emit!(ws, "");
+        emit!(ws, "impl<'a> Sexpr for &'a arena::{r}<'a> {{");
+        emit!(ws, "    fn write_sexpr(&self, out: &mut String) {{");
+        emit!(ws, "        {r}Ref::Arena(self).write_sexpr(out);");
+        emit!(ws, "    }}");
+        emit!(ws, "}}");
     } else {
-        ws.push(String::new());
-        ws.push(format!("impl Sexpr for arena::{r} {{"));
-        ws.push("    fn write_sexpr(&self, out: &mut String) {".to_string());
-        ws.push(format!("        {r}Ref::Arena(self).write_sexpr(out);"));
-        ws.push("    }".to_string());
-        ws.push("}".to_string());
+        emit!(ws, "");
+        emit!(ws, "impl Sexpr for arena::{r} {{");
+        emit!(ws, "    fn write_sexpr(&self, out: &mut String) {{");
+        emit!(ws, "        {r}Ref::Arena(self).write_sexpr(out);");
+        emit!(ws, "    }}");
+        emit!(ws, "}}");
     }
 }
 
@@ -1653,32 +1558,32 @@ pub(crate) fn generate(mod_node: &Module, input_name: &str) -> Result<GeneratedR
     let shared_joined = shared_names.join(", ");
 
     shared.push(header.clone());
-    shared.push(String::new());
+    emit!(shared, "");
     arena.push(header.clone());
-    arena.push(String::new());
-    arena.push("use bumpalo::collections::Vec;".to_string());
-    arena.push(String::new());
-    arena.push(format!("pub use crate::shared::{{{shared_joined}}};"));
-    arena.push(String::new());
+    emit!(arena, "");
+    emit!(arena, "use bumpalo::collections::Vec;");
+    emit!(arena, "");
+    emit!(arena, "pub use crate::shared::{{{shared_joined}}};");
+    emit!(arena, "");
 
     owned.push(header.clone());
-    owned.push(String::new());
-    owned.push(format!("pub use crate::shared::{{{shared_joined}}};"));
-    owned.push(String::new());
+    emit!(owned, "");
+    emit!(owned, "pub use crate::shared::{{{shared_joined}}};");
+    emit!(owned, "");
 
     views.push(header.clone());
-    views.push(String::new());
-    views.push("use crate::shared::*;".to_string());
-    views.push("use crate::{arena, owned};".to_string());
-    views.push(String::new());
+    emit!(views, "");
+    emit!(views, "use crate::shared::*;");
+    emit!(views, "use crate::{{arena, owned}};");
+    emit!(views, "");
 
     sexpr.push(header);
-    sexpr.push(String::new());
-    sexpr.push("use dbt_asdl::Sexpr;".to_string());
-    sexpr.push("use crate::shared::*;".to_string());
-    sexpr.push("use crate::gen_views::*;".to_string());
-    sexpr.push("use crate::{arena, owned};".to_string());
-    sexpr.push(String::new());
+    emit!(sexpr, "");
+    emit!(sexpr, "use dbt_asdl::Sexpr;");
+    emit!(sexpr, "use crate::shared::*;");
+    emit!(sexpr, "use crate::gen_views::*;");
+    emit!(sexpr, "use crate::{{arena, owned}};");
+    emit!(sexpr, "");
 
     let seq_types = seq_list_types(mod_node, &infos);
     let mut list_infos = Vec::new();
@@ -1730,11 +1635,11 @@ pub(crate) fn generate(mod_node: &Module, input_name: &str) -> Result<GeneratedR
             emit_sum_ref_sexpr(&mut sexpr, info);
             emit_delegating_sexpr(&mut sexpr, info);
         }
-        shared.push(String::new());
-        arena.push(String::new());
-        owned.push(String::new());
-        views.push(String::new());
-        sexpr.push(String::new());
+        emit!(shared, "");
+        emit!(arena, "");
+        emit!(owned, "");
+        emit!(views, "");
+        emit!(sexpr, "");
     }
 
     for info in list_infos {

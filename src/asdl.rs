@@ -471,10 +471,7 @@ impl ASDLParser {
                 format!("Unmatched {kind:?} (found {:?})", tok.kind),
                 Some(tok.lineno),
             )),
-            None => Err(ASDLSyntaxError::new(
-                format!("Unmatched {kind:?} (found EOF)"),
-                None,
-            )),
+            None => Err(ASDLSyntaxError::new(format!("Unmatched {kind:?} (found EOF)"), None)),
         }
     }
 
@@ -489,10 +486,7 @@ impl ASDLParser {
                 format!("Unmatched {kinds:?} (found {:?})", tok.kind),
                 Some(tok.lineno),
             )),
-            None => Err(ASDLSyntaxError::new(
-                format!("Unmatched {kinds:?} (found EOF)"),
-                None,
-            )),
+            None => Err(ASDLSyntaxError::new(format!("Unmatched {kinds:?} (found EOF)"), None)),
         }
     }
 
