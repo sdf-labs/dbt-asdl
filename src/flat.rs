@@ -706,9 +706,14 @@ fn emit_builder(
     for (i, (_, elem)) in layout.sections.iter().enumerate() {
         emit!(w, "                {i} => {{");
         emit!(w, "                    drop(Box::from_raw(");
+        let cast_ptr = if elem == "u8" {
+            "ptr".to_string()
+        } else {
+            format!("ptr as *mut {elem}")
+        };
         emit!(
             w,
-            "                        std::ptr::slice_from_raw_parts_mut(ptr as *mut {elem}, len),"
+            "                        std::ptr::slice_from_raw_parts_mut({cast_ptr}, len),"
         );
         emit!(w, "                    ));");
         emit!(w, "                }}");
@@ -1003,7 +1008,7 @@ fn emit_stable(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
         .collect();
     if !projectable.is_empty() {
         emit!(w, "/// Typed `@stable` projections on [`Node`].");
-        emit!(w, "pub trait StableNodeExt<'t> {{");
+        emit!(w, "pub trait StableNodeExt<'t>: Copy {{");
         for (i, info) in projectable.iter().enumerate() {
             if i > 0 {
                 emit!(w, "");
@@ -1258,8 +1263,8 @@ fn emit_freeze(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
 
 fn emit_convert(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, TypeInfo>) {
     emit!(w, "use crate::*;");
+    emit!(w, "#[allow(unused_imports)]");
     emit!(w, "use dbt_asdl::*;");
-    emit!(w, "use dbt_sql_ast as ast;");
     emit!(w, "");
     emit!(w, "/// Deep-convert a finished arena/owned tree (behind the read API) into");
     emit!(w, "/// the flat boundary representation: one O(nodes) pass, children");

@@ -1,0 +1,22 @@
+[package]
+name = "mini-sql-dialect"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = ["builder", "convert"]
+builder = []
+convert = ["builder"]
+
+[dependencies]
+bumpalo = { version = "3.20.3", features = ["collections"] }
+dbt-asdl = { path = "../..", default-features = false }
+
+[build-dependencies]
+dbt-asdl = { path = "../..", default-features = false }

@@ -1145,7 +1145,7 @@ fn write_node(node: Node, out: &mut String) {
         let value = node.field_at(i).expect("index in range");
         let elided = match &value {
             Value::None => true,
-            Value::Bool(b) => !b,
+            Value::Bool(b) => !b && fields[i].enc == FlatEnc::Bool as u8,
             Value::Seq(s) => s.is_empty(),
             _ => false,
         };

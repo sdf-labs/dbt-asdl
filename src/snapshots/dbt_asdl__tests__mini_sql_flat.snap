@@ -9,7 +9,7 @@ use dbt_asdl::*;
 /// FNV-1a/64 of the sql.asdl bytes this build was generated from.
 /// Library-side: the host reads the hash from the descriptor.
 #[cfg(feature = "builder")]
-pub const SCHEMA_HASH: u64 = 0x1c359912209ccbcb;
+pub const SCHEMA_HASH: u64 = 0x137950a988051183;
 
 // A typed node reference per product and compound sum: a
 // repr(transparent) u32 index into the type's node section. NONE is
@@ -685,7 +685,7 @@ unsafe extern "C" fn release(tree: *mut FlatTree) {
             match i {
                 0 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut u8, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr, len),
                     ));
                 }
                 1 => {
@@ -854,7 +854,7 @@ impl<'t> StableDataType<'t> {
 }
 
 /// Typed `@stable` projections on [`Node`].
-pub trait StableNodeExt<'t> {
+pub trait StableNodeExt<'t>: Copy {
     /// This node as a @stable `data_type`, when it IS one.
     /// The record shape is guaranteed by the load-time
     /// `abi_version` handshake.

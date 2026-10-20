@@ -8,6 +8,9 @@ use std::path::PathBuf;
 #[path = "src/asdl.rs"]
 mod asdl;
 #[allow(dead_code)]
+#[path = "src/flat.rs"]
+mod flat;
+#[allow(dead_code)]
 #[path = "src/rust.rs"]
 mod rust;
 
@@ -22,4 +25,6 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("cargo sets OUT_DIR"));
     rust::generate_trees(&asdl_path, out_dir.join("gen.rs"))
         .expect("failed to generate Rust AST from mini_sql.asdl");
+    flat::generate_flat(&asdl_path, out_dir.join("gen_flat.rs"))
+        .expect("failed to generate flat Rust AST from mini_sql.asdl");
 }

@@ -150,6 +150,11 @@ impl Sexpr for WhenThenRef<'_> {
         out.push_str(" (then ");
         self.then().write_sexpr(out);
         out.push(')');
+        if self.op().is_some() {
+            out.push_str(" (op ");
+            self.op().write_sexpr(out);
+            out.push(')');
+        }
         out.push(')');
     }
 }
@@ -254,7 +259,47 @@ impl<'a> Sexpr for &'a arena::Expr<'a> {
     }
 }
 
+impl Sexpr for FileRef<'_> {
+    fn write_sexpr(&self, out: &mut String) {
+        out.push_str("(File");
+        if !self.exprs().is_empty() {
+            out.push_str(" (exprs ");
+            self.exprs().write_sexpr(out);
+            out.push(')');
+        }
+        if !self.spans().is_empty() {
+            out.push_str(" (spans ");
+            self.spans().write_sexpr(out);
+            out.push(')');
+        }
+        out.push(')');
+    }
+}
+impl Sexpr for owned::File {
+    fn write_sexpr(&self, out: &mut String) {
+        FileRef::Owned(self).write_sexpr(out);
+    }
+}
+
+impl<'a> Sexpr for &'a arena::File<'a> {
+    fn write_sexpr(&self, out: &mut String) {
+        FileRef::Arena(self).write_sexpr(out);
+    }
+}
+
 impl Sexpr for WhenThenList<'_> {
+    fn write_sexpr(&self, out: &mut String) {
+        out.push('[');
+        for (i, item) in self.iter().enumerate() {
+            if i > 0 {
+                out.push(' ');
+            }
+            item.write_sexpr(out);
+        }
+        out.push(']');
+    }
+}
+impl Sexpr for ExprList<'_> {
     fn write_sexpr(&self, out: &mut String) {
         out.push('[');
         for (i, item) in self.iter().enumerate() {

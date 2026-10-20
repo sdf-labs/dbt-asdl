@@ -238,6 +238,7 @@ pub type WhenThenRef<'a> = &'a WhenThen;
 pub struct WhenThen {
     pub when: Box<Expr>,
     pub then: Box<Expr>,
+    pub op: Option<BinOp>,
 }
 
 /// A reference to an owned `expr` node.
@@ -400,4 +401,14 @@ impl expr::Cast {
     pub fn set_span(&mut self, v: Span) {
         self.span = v;
     }
+}
+
+
+/// A reference to an owned `file` node.
+pub type FileRef<'a> = &'a File;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct File {
+    pub exprs: Vec<Expr>,
+    pub spans: Vec<Span>,
 }

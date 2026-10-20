@@ -15,7 +15,8 @@ module MiniSql {
           | Null
           attributes (span span)
 
-  when_then = (expr when, expr then)
+  @stable
+  when_then = (expr when, expr then, bin_op? op)
 
   expr = Identifier(identifier* parts)
        | Literal(literal value)
@@ -23,4 +24,6 @@ module MiniSql {
        | Case(expr? operand, when_then* cases, expr? else)
        | Cast(expr e, data_type to, string* notes)
        attributes (span span)
+
+  file = (expr* exprs, span* spans)
 }

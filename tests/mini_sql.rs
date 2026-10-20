@@ -1,7 +1,7 @@
 //! End-to-end integration tests for the AST and `Sexpr` code generated from
 //! `tests/fixtures/mini_sql.asdl`.
 
-#![allow(missing_docs, dead_code)]
+#![allow(missing_docs, dead_code, unexpected_cfgs)]
 
 use bumpalo::collections::Vec as BVec;
 use bumpalo::{Bump, vec as bvec};
@@ -207,8 +207,8 @@ fn build_arena_expr(b: &Bump, span: Span) -> arena::ExprRef<'_> {
             operand: Some(a_ident(b, span, &["x"])),
             cases: bvec![
                 in b;
-                al(b, arena::WhenThen { when: cond1, then: then1 }),
-                al(b, arena::WhenThen { when: cond2, then: then2 }),
+                al(b, arena::WhenThen { when: cond1, then: then1, op: Some(BinOp::Add) }),
+                al(b, arena::WhenThen { when: cond2, then: then2, op: None }),
             ],
             r#else: Some(else_expr),
         })),
@@ -262,10 +262,12 @@ fn build_owned_expr(span: Span) -> owned::Expr {
             owned::WhenThen {
                 when: Box::new(cond1),
                 then: Box::new(then1),
+                op: Some(BinOp::Add),
             },
             owned::WhenThen {
                 when: Box::new(cond2),
                 then: Box::new(then2),
+                op: None,
             },
         ],
         r#else: Some(Box::new(else_expr)),
@@ -409,14 +411,16 @@ fn arena_and_owned_trees_equality_conversion_and_sexpr() {
         arena::WhenThen {
             when: a_ident(b, span_at(1, 2), &["k"]),
             then: a_number(b, span_at(3, 4), "9"),
+            op: Some(BinOp::Add),
         },
     );
     let wt_owned = owned::WhenThen {
         when: Box::new(o_ident(unknown_span(), &["k"])),
         then: Box::new(o_number(unknown_span(), "9")),
+        op: Some(BinOp::Add),
     };
     assert_eq!(wt_arena.to_owned(), wt_owned);
-    let wt_sexpr = "(WhenThen (when (Identifier (parts [\"k\"]))) (then (Literal (value (Number (text \"9\"))))))";
+    let wt_sexpr = "(WhenThen (when (Identifier (parts [\"k\"]))) (then (Literal (value (Number (text \"9\"))))) (op Add))";
     assert_eq!(wt_arena.to_sexpr(), wt_sexpr);
     assert_eq!(wt_owned.to_sexpr(), wt_sexpr);
     assert_eq!(WhenThenRef::from(wt_arena).to_sexpr(), wt_sexpr);
@@ -428,6 +432,7 @@ fn arena_and_owned_trees_equality_conversion_and_sexpr() {
         "(WhenThen",
         " (when (BinaryOp (left (Identifier (parts [\"t\" \"a\"]))) (op Eq) (right (Literal (value (Number (text \"1\")))))))",
         " (then (Cast (e (BinaryOp (left (Identifier (parts [\"b\"]))) (op Sub) (right (Literal (value (Number (text \"2\"))))))) (to (Int (unsigned true) (width 64))) (notes [\"fast\" \"checked\"])))",
+        " (op Add)",
         ") ",
         "(WhenThen",
         " (when (Identifier (parts [\"c\"])))",
@@ -488,6 +493,7 @@ fn inspect_case_tree(root: ExprRef<'_>) {
             "(WhenThen",
             " (when (BinaryOp (left (Identifier (parts [\"t\" \"a\"]))) (op Eq) (right (Literal (value (Number (text \"1\")))))))",
             " (then (Cast (e (BinaryOp (left (Identifier (parts [\"b\"]))) (op Sub) (right (Literal (value (Number (text \"2\"))))))) (to (Int (unsigned true) (width 64))) (notes [\"fast\" \"checked\"])))",
+            " (op Add)",
             ") ",
             "(WhenThen",
             " (when (Identifier (parts [\"c\"])))",
@@ -498,6 +504,7 @@ fn inspect_case_tree(root: ExprRef<'_>) {
     );
 
     let wt0: WhenThenRef<'_> = cases.get(0).unwrap();
+    assert_eq!(wt0.op(), Some(BinOp::Add));
     let bin = wt0.when().as_binary_op().unwrap();
     assert_eq!(bin.op(), BinOp::Eq);
     let lhs_parts: Vec<&str> = bin
@@ -540,6 +547,7 @@ fn inspect_case_tree(root: ExprRef<'_>) {
     let collected: Vec<WhenThenRef<'_>> = cases.into_iter().collect();
     assert_eq!(collected.len(), 2);
     let wt1 = collected[1];
+    assert_eq!(wt1.op(), None);
     assert_eq!(
         wt1.then()
             .as_literal()
@@ -573,4 +581,299 @@ fn views_api_runs_identically_over_arena_and_owned_trees() {
 
     inspect_case_tree(ExprRef::from(arena_expr));
     inspect_case_tree(ExprRef::from(&owned_expr));
+
+    let arena_file = al(
+        b,
+        arena::File {
+            exprs: bvec![in b; arena_expr],
+            spans: bvec![in b; span_at(1, 50)],
+        },
+    );
+    let owned_file = owned::File {
+        exprs: vec![owned_expr],
+        spans: vec![span_at(1, 50)],
+    };
+    assert_eq!(arena_file.to_owned(), owned_file);
+    assert_eq!(arena_file.to_sexpr(), owned_file.to_sexpr());
+
+    let file_ref = FileRef::from(arena_file);
+    assert_eq!(file_ref.exprs().len(), 1);
+    assert_eq!(file_ref.spans(), &[span_at(1, 50)]);
+    inspect_case_tree(file_ref.exprs().get(0).unwrap());
+}
+
+mod gen_flat {
+    include!(concat!(env!("OUT_DIR"), "/gen_flat.rs"));
+}
+
+fn mini_sql_dialect_cdylib() -> std::path::PathBuf {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let child_manifest = manifest_dir.join("tests/mini-sql-dialect/Cargo.toml");
+    let exe = std::env::current_exe().expect("test executable path");
+    let outer_target = exe
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("target/<profile>/deps parent");
+    let child_target = outer_target.join("mini-sql-dialect-target");
+
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let status = Command::new(cargo)
+        .args(["build", "--manifest-path"])
+        .arg(&child_manifest)
+        .arg("--target-dir")
+        .arg(&child_target)
+        .arg("--offline")
+        .status()
+        .expect("failed to invoke cargo build for mini-sql-dialect");
+    assert!(status.success(), "building mini-sql-dialect cdylib failed");
+
+    let dylib_name = format!(
+        "{}mini_sql_dialect{}",
+        std::env::consts::DLL_PREFIX,
+        std::env::consts::DLL_SUFFIX
+    );
+    child_target.join("debug").join(dylib_name)
+}
+
+fn child_node<'t>(node: dbt_asdl::Node<'t>, field: &str) -> dbt_asdl::Node<'t> {
+    match node.field(field) {
+        Some(dbt_asdl::Value::Node(n)) => n,
+        _ => panic!("expected Node for field '{field}'"),
+    }
+}
+
+#[test]
+fn flat_abi_loads_cdylib_and_exercises_tree_across_boundary() {
+    use dbt_asdl::{Dialect, LoadError, NONE_U8, Value};
+    use gen_flat::{DataTypeTag, StableNodeExt};
+
+    let dylib_path = mini_sql_dialect_cdylib();
+
+    match unsafe { Dialect::load(std::path::Path::new("/nonexistent/libfoo.so"), "mini") } {
+        Err(LoadError::Open(_)) => {}
+        Err(other) => panic!("expected LoadError::Open, got {other:?}"),
+        Ok(_) => panic!("expected LoadError::Open"),
+    }
+
+    match unsafe { Dialect::load(&dylib_path, "nosuch") } {
+        Err(LoadError::MissingSymbol(sym)) => assert_eq!(sym, "sql_dialect_nosuch"),
+        Err(other) => panic!("expected LoadError::MissingSymbol, got {other:?}"),
+        Ok(_) => panic!("expected LoadError::MissingSymbol"),
+    }
+
+    let dialect = unsafe { Dialect::load(&dylib_path, "mini") }
+        .expect("load mini-sql-dialect shared library");
+    assert_eq!(dialect.name(), "mini");
+    assert_eq!(dialect.dialect_version(), "0.1.0");
+    assert_eq!(dialect.descriptor().abi_version, dbt_asdl::ABI_VERSION);
+    assert_ne!(dialect.schema_hash(), 0);
+
+    match dialect.parse("") {
+        Err(e) => assert_eq!(e, "empty input"),
+        Ok(_) => panic!("expected empty input error"),
+    }
+    match dialect.parse("bogus") {
+        Err(e) => assert_eq!(e, "unsupported query mode: bogus"),
+        Ok(_) => panic!("expected unsupported query mode error"),
+    }
+    match dialect.parse("panic") {
+        Err(e) => assert_eq!(e, "panic in parse"),
+        Ok(_) => panic!("expected panic in parse error"),
+    }
+    assert!(matches!(
+        unsafe { dbt_asdl::Tree::from_raw(std::ptr::null_mut()) },
+        Err(dbt_asdl::AbiError::NullTree)
+    ));
+
+    let tree_from_convert = dialect.parse("convert").expect("parse via convert_file");
+    let tree_from_builder = dialect.parse("builder").expect("parse via TreeBuilder");
+
+    assert_eq!(tree_from_convert.abi_version(), dbt_asdl::ABI_VERSION);
+    assert_eq!(tree_from_convert.schema_hash(), dialect.schema_hash());
+    assert_eq!(tree_from_builder.abi_version(), dbt_asdl::ABI_VERSION);
+    assert_eq!(tree_from_builder.schema_hash(), dialect.schema_hash());
+
+    let expected_sexpr = concat!(
+        "(File",
+        " (exprs [",
+        "(Cast",
+        " (e (Case",
+        " (operand (Identifier (parts [\"db\" \"users\" \"id\"])))",
+        " (cases [",
+        "(WhenThen",
+        " (when (BinaryOp (left (Identifier (parts [\"db\" \"users\" \"id\"]))) (op Eq) (right (Literal (value (Number (text \"42\")))))))",
+        " (then (Literal (value (String (value \"ok\\n\\\"1\\\"\")))))",
+        " (op Add)",
+        ") ",
+        "(WhenThen",
+        " (when (Identifier (parts [\"db\" \"users\" \"id\"])))",
+        " (then (Literal (value (Number (text \"42\")))))",
+        ")",
+        "])",
+        " (else (Literal (value Null)))",
+        "))",
+        " (to (Int (nullable true) (unsigned false) (width 64)))",
+        " (notes [\"narrow\" \"checked\"])",
+        ") ",
+        "(Cast",
+        " (e (Identifier (parts [\"db\" \"users\" \"id\"])))",
+        " (to Bool)",
+        ")",
+        "])",
+        ")"
+    );
+
+    assert_eq!(tree_from_convert.to_sexpr(), expected_sexpr);
+    assert_eq!(tree_from_builder.to_sexpr(), expected_sexpr);
+
+    for tree in [&tree_from_convert, &tree_from_builder] {
+        let root = tree.root();
+        assert_eq!(root.type_name(), "file");
+        assert_eq!(root.kind(), None);
+        assert_eq!(root.kind_id(), None);
+        assert!(root.field("nonexistent").is_none());
+        assert!(root.as_data_type().is_none());
+        assert!(root.as_when_then().is_none());
+
+        let Some(Value::Seq(exprs)) = root.field("exprs") else {
+            panic!("expected exprs sequence");
+        };
+        assert!(!exprs.is_empty());
+        assert_eq!(exprs.len(), 2);
+        assert!(exprs.get(2).is_none());
+        assert_eq!(exprs.elem_type(), tree.type_by_name("expr").unwrap());
+        assert_eq!(root.fields().len(), 2);
+        assert!(root.field_at(0).is_some());
+        assert!(root.field_at(2).is_none());
+
+        let Some(Value::Node(cast0)) = exprs.get(0) else {
+            panic!("expected first expr node");
+        };
+        assert_eq!(cast0.type_name(), "expr");
+        assert_eq!(cast0.kind(), Some("Cast"));
+        assert_eq!(cast0.kind_id(), tree.kind_by_name("Cast"));
+        assert!(tree.kind_by_name("NoSuchCtor").is_none());
+
+        let Some(Value::Seq(notes)) = cast0.field("notes") else {
+            panic!("expected notes sequence");
+        };
+        let note_strs: Vec<&str> = notes
+            .iter()
+            .map(|v| match v {
+                Value::Str(s) => s,
+                _ => panic!("expected Str in notes"),
+            })
+            .collect();
+        assert_eq!(note_strs, ["narrow", "checked"]);
+
+        let to0 = child_node(cast0, "to");
+        assert_eq!(to0.type_name(), "data_type");
+        assert_eq!(to0.kind(), Some("Int"));
+        assert!(matches!(to0.field("nullable"), Some(Value::Bool(true))));
+        assert!(matches!(to0.field("unsigned"), Some(Value::Bool(false))));
+        assert!(matches!(to0.field("width"), Some(Value::Byte(64))));
+
+        let dt0 = to0.as_data_type().expect("@stable data_type projection");
+        assert_eq!(dt0.node().index(), to0.index());
+        assert_eq!(dt0.tag(), Some(DataTypeTag::Int));
+        assert!(dt0.as_bool().is_none());
+        let dt0_int = dt0.as_int().expect("Int payload");
+        assert_eq!(dt0_int.nullable, 1);
+        assert_eq!(dt0_int.unsigned.get(), Some(false));
+        assert_eq!(dt0_int.width.get(), Some(64));
+        assert!(!dt0_int.span.is_none());
+
+        let case_node = child_node(cast0, "e");
+        assert_eq!(case_node.kind(), Some("Case"));
+        let operand = child_node(case_node, "operand");
+        assert_eq!(operand.kind(), Some("Identifier"));
+        let Some(Value::Seq(parts)) = operand.field("parts") else {
+            panic!("expected parts sequence");
+        };
+        let part_strs: Vec<&str> = parts
+            .iter()
+            .map(|v| match v {
+                Value::Str(s) => s,
+                _ => panic!("expected Str in parts"),
+            })
+            .collect();
+        assert_eq!(part_strs, ["db", "users", "id"]);
+
+        let Some(Value::Seq(cases)) = case_node.field("cases") else {
+            panic!("expected cases sequence");
+        };
+        assert_eq!(cases.len(), 2);
+
+        let Some(Value::Node(wt0_node)) = cases.get(0) else {
+            panic!("expected wt0 node");
+        };
+        assert_eq!(wt0_node.type_name(), "when_then");
+        assert_eq!(wt0_node.kind(), None);
+        let Some(Value::SimpleSum(op_ty, op_tag)) = wt0_node.field("op") else {
+            panic!("expected SimpleSum for wt0.op");
+        };
+        assert_eq!(tree.simple_variant_name(op_ty, op_tag), Some("Add"));
+
+        let wt0_proj = wt0_node
+            .as_when_then()
+            .expect("@stable when_then projection");
+        assert!(!wt0_proj.when.is_none());
+        assert!(!wt0_proj.then.is_none());
+        assert_eq!(wt0_proj.op, BinOp::Add as u8);
+
+        let when0 = child_node(wt0_node, "when");
+        assert_eq!(when0.kind(), Some("BinaryOp"));
+        let Some(Value::SimpleSum(bin_ty, bin_tag)) = when0.field("op") else {
+            panic!("expected SimpleSum for BinaryOp.op");
+        };
+        assert_eq!(tree.simple_variant_name(bin_ty, bin_tag), Some("Eq"));
+
+        let Some(Value::Node(wt1_node)) = cases.get(1) else {
+            panic!("expected wt1 node");
+        };
+        assert!(matches!(wt1_node.field("op"), Some(Value::None)));
+        let wt1_proj = wt1_node
+            .as_when_then()
+            .expect("@stable when_then projection");
+        assert_eq!(wt1_proj.op, NONE_U8);
+
+        let Some(Value::Node(cast1)) = exprs.get(1) else {
+            panic!("expected second expr node");
+        };
+        let to1 = child_node(cast1, "to");
+        let dt1 = to1.as_data_type().expect("@stable data_type projection");
+        assert_eq!(dt1.tag(), Some(DataTypeTag::Bool));
+        assert!(dt1.as_int().is_none());
+        let dt1_bool = dt1.as_bool().expect("Bool payload");
+        assert_eq!(dt1_bool.nullable, 0);
+
+        let Some(Value::Seq(spans)) = root.field("spans") else {
+            panic!("expected spans sequence");
+        };
+        assert_eq!(spans.len(), 2);
+        let Some(Value::Node(span0)) = spans.get(0) else {
+            panic!("expected span0 node");
+        };
+        let start0 = child_node(span0, "start");
+        assert!(matches!(start0.field("lineno"), Some(Value::Int(1))));
+        assert!(matches!(start0.field("col_offset"), Some(Value::Int(0))));
+        assert!(matches!(start0.field("index"), Some(Value::Long(0))));
+
+        let Some(Value::Node(span1)) = spans.get(1) else {
+            panic!("expected span1 node");
+        };
+        let start1 = child_node(span1, "start");
+        assert!(matches!(start1.field("lineno"), Some(Value::None)));
+        assert!(matches!(start1.field("col_offset"), Some(Value::None)));
+        assert!(matches!(start1.field("index"), Some(Value::None)));
+    }
+
+    let freeze = gen_flat::freeze_stable_layout();
+    assert!(freeze.starts_with("abi_version: 1\n"));
+    assert!(freeze.contains("type data_type: sum\n"));
+    assert!(freeze.contains("type when_then: product size "));
+    assert!(freeze.contains("type bin_op: simple_sum (referenced by a stable field)\n"));
 }
