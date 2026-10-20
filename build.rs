@@ -3,19 +3,8 @@
 use std::env;
 use std::path::PathBuf;
 
-macro_rules! emit {
-    ($w:ident, "") => {
-        $w.push(String::new())
-    };
-    ($w:ident, $lit:literal) => {
-        $w.push(format!($lit))
-    };
-    ($w:ident, $fmt:literal, $($arg:tt)*) => {
-        $w.push(format!($fmt, $($arg)*))
-    };
-}
-
 #[allow(dead_code)]
+#[macro_use]
 #[path = "src/asdl.rs"]
 mod asdl;
 #[allow(dead_code)]

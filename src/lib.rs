@@ -22,18 +22,7 @@
 //!     .expect("failed to generate flat Rust AST from sql.asdl");
 //! ```
 
-macro_rules! emit {
-    ($w:ident, "") => {
-        $w.push(String::new())
-    };
-    ($w:ident, $lit:literal) => {
-        $w.push(format!($lit))
-    };
-    ($w:ident, $fmt:literal, $($arg:tt)*) => {
-        $w.push(format!($fmt, $($arg)*))
-    };
-}
-
+#[macro_use]
 pub(crate) mod asdl;
 pub(crate) mod flat;
 mod flat_runtime;
