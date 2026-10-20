@@ -10,7 +10,11 @@ repository = "https://github.com/sdf-labs/dbt-asdl"
 readme = "README.md"
 exclude = ["src/snapshots/"]
 
+[features]
+loader = ["dep:libloading"]
+
 [dependencies]
+libloading = { version = "0.8", optional = true }
 ustr = "1.1.0"
 
 [dev-dependencies]

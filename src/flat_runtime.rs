@@ -1,5 +1,7 @@
 use std::fmt::Write as _;
 
+use crate::sexpr::write_escaped;
+
 /// Layout version of the boundary: the descriptor and tree-record layout in
 /// this file, plus the `@stable` region's record layouts. A host supports a
 /// range of versions (backwards compatible, never forwards); a library
@@ -30,13 +32,20 @@ pub const SECTION_STRINGS: u32 = 0;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FlatStr {
+    /// Byte offset into the UTF-8 string section (`NONE_U32` when `None`).
     pub off: u32,
+    /// Byte length of the UTF-8 string.
     pub len: u32,
 }
 
 impl FlatStr {
-    pub const NONE: Self = FlatStr { off: NONE_U32, len: 0 };
+    /// The `None` sentinel for an optional string field.
+    pub const NONE: Self = FlatStr {
+        off: NONE_U32,
+        len: 0,
+    };
 
+    /// Returns `true` if this string holds the `None` sentinel.
     pub fn is_none(self) -> bool {
         self.off == NONE_U32
     }
@@ -47,45 +56,62 @@ impl FlatStr {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FlatSeq {
+    /// Element offset into the sequence pool section.
     pub off: u32,
+    /// Number of elements in the sequence.
     pub len: u32,
 }
 
-/// Optional scalars: explicit tags, no niche tricks (the layout is defined
-/// by the platform C ABI, and niche encoding is rustc-internal).
+/// Optional boolean value in the flat C ABI layout.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OptBool {
+    /// Non-zero when a value is present, or `0` for `None`.
     pub is_some: u32,
+    /// Boolean value (`0` for `false`, non-zero for `true`).
     pub value: u8,
 }
 
+/// Optional byte (`u8`) value in the flat C ABI layout.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OptByte {
+    /// Non-zero when a value is present, or `0` for `None`.
     pub is_some: u32,
+    /// Byte payload when `is_some != 0`.
     pub value: u8,
 }
 
+/// Optional 32-bit signed integer (`i32`) value in the flat C ABI layout.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OptInt {
+    /// Non-zero when a value is present, or `0` for `None`.
     pub is_some: u32,
+    /// Integer payload when `is_some != 0`.
     pub value: i32,
 }
 
+/// Optional 64-bit signed integer (`i64`) value in the flat C ABI layout.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OptLong {
+    /// Non-zero when a value is present, or `0` for `None`.
     pub is_some: u32,
+    /// Long integer payload when `is_some != 0`.
     pub value: i64,
 }
 
 macro_rules! opt_scalar {
     ($t:ident, $v:ty) => {
         impl $t {
-            pub const NONE: Self = $t { is_some: 0, value: 0 };
+            /// The `None` value for this optional scalar type.
+            pub const NONE: Self = $t {
+                is_some: 0,
+                value: 0,
+            };
 
+            /// Returns `Some(value)` if `is_some != 0`, or `None` otherwise.
             pub fn get(self) -> Option<$v> {
                 (self.is_some != 0).then_some(self.value)
             }
@@ -107,8 +133,13 @@ opt_scalar!(OptInt, i32);
 opt_scalar!(OptLong, i64);
 
 impl OptBool {
-    pub const NONE: Self = OptBool { is_some: 0, value: 0 };
+    /// The `None` value for an optional boolean field.
+    pub const NONE: Self = OptBool {
+        is_some: 0,
+        value: 0,
+    };
 
+    /// Returns `Some(bool)` if `is_some != 0`, or `None` otherwise.
     pub fn get(self) -> Option<bool> {
         (self.is_some != 0).then_some(self.value != 0)
     }
@@ -117,7 +148,10 @@ impl OptBool {
 impl From<Option<bool>> for OptBool {
     fn from(v: Option<bool>) -> Self {
         match v {
-            Some(value) => OptBool { is_some: 1, value: value as u8 },
+            Some(value) => OptBool {
+                is_some: 1,
+                value: value as u8,
+            },
             None => OptBool::NONE,
         }
     }
@@ -130,8 +164,11 @@ impl From<Option<bool>> for OptBool {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct FlatNode {
+    /// Constructor index within the sum, in ASDL declaration order.
     pub tag: u16,
+    /// Reserved alignment padding (zero).
     pub _pad: u16,
+    /// Index of the payload record in the constructor section (`NONE_U32` when bare).
     pub payload: u32,
 }
 
@@ -147,15 +184,20 @@ pub struct FlatNode {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct FlatName {
+    /// Pointer to static UTF-8 bytes in the library's read-only data.
     pub ptr: *const u8,
+    /// Byte length of the UTF-8 string.
     pub len: u32,
 }
 
 impl FlatName {
+    /// Creates a `FlatName` from a `'static` string slice.
     pub const fn from_static(s: &'static str) -> Self {
-        FlatName { ptr: s.as_ptr(), len: s.len() as u32 }
+        FlatName {
+            ptr: s.as_ptr(),
+            len: s.len() as u32,
+        }
     }
-
     /// The name as a str. Safe to call on any descriptor the handshake
     /// accepted: the pointed-to memory is the library's static rodata, and
     /// libraries are never unloaded.
@@ -172,9 +214,13 @@ impl FlatName {
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FlatEnc {
+    /// A `u8` boolean (`0` or `1`).
     Bool = 0,
+    /// A `u8` byte value.
     Byte = 1,
+    /// An `i32` integer value.
     Int = 2,
+    /// An `i64` integer value.
     Long = 3,
     /// A `u8` discriminant of the simple sum `type_index`.
     SimpleSum = 4,
@@ -182,9 +228,13 @@ pub enum FlatEnc {
     Str = 5,
     /// A `u32` node index of type `type_index`.
     Node = 6,
+    /// An `OptBool`.
     OptBool = 7,
+    /// An `OptByte`.
     OptByte = 8,
+    /// An `OptInt`.
     OptInt = 9,
+    /// An `OptLong`.
     OptLong = 10,
     /// A `u8` discriminant, `NONE_U8` for None.
     OptSimpleSum = 11,
@@ -197,6 +247,7 @@ pub enum FlatEnc {
 }
 
 impl FlatEnc {
+    /// Converts a raw `u8` byte into a [`FlatEnc`], or `None` if unknown.
     pub fn from_u8(v: u8) -> Option<FlatEnc> {
         Some(match v {
             0 => FlatEnc::Bool,
@@ -235,6 +286,7 @@ pub enum FlatTypeKind {
 }
 
 impl FlatTypeKind {
+    /// Converts a raw `u8` byte into a [`FlatTypeKind`], or `None` if unknown.
     pub fn from_u8(v: u8) -> Option<FlatTypeKind> {
         Some(match v {
             0 => FlatTypeKind::Builtin,
@@ -250,6 +302,7 @@ impl FlatTypeKind {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct FlatFieldInfo {
+    /// Field name in the ASDL specification.
     pub name: FlatName,
     /// Byte offset of the field within its record.
     pub offset: u32,
@@ -264,6 +317,7 @@ pub struct FlatFieldInfo {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct FlatCtorInfo {
+    /// Constructor name in the ASDL specification.
     pub name: FlatName,
     /// The tag value within its sum.
     pub tag: u16,
@@ -271,7 +325,9 @@ pub struct FlatCtorInfo {
     pub type_index: u16,
     /// The section holding this constructor's payload records, or -1.
     pub payload_section: i32,
+    /// Pointer to the constructor's field descriptor table, or null when `field_count == 0`.
     pub fields: *const FlatFieldInfo,
+    /// Number of fields in `fields`.
     pub field_count: u32,
 }
 
@@ -279,6 +335,7 @@ pub struct FlatCtorInfo {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct FlatTypeInfo {
+    /// Type name in the ASDL specification.
     pub name: FlatName,
     /// A `FlatTypeKind` value.
     pub kind: u8,
@@ -295,9 +352,11 @@ pub struct FlatTypeInfo {
     /// For sums: the constructors are `ctors[ctor_off .. ctor_off +
     /// ctor_count]`, tags indexing within.
     pub ctor_off: u32,
+    /// Number of constructors for sum types, or `0` for products and builtins.
     pub ctor_count: u32,
     /// For products: the product's fields.
     pub fields: *const FlatFieldInfo,
+    /// Number of fields for product types, or `0` otherwise.
     pub field_count: u32,
 }
 
@@ -306,11 +365,17 @@ pub struct FlatTypeInfo {
 /// by name, resolved at run time, never by hardcoded index.
 #[repr(C)]
 pub struct FlatSchema {
+    /// Boundary ABI version (`ABI_VERSION`).
     pub abi_version: u32,
+    /// 64-bit FNV-1a hash of the source `.asdl` bytes.
     pub schema_hash: u64,
+    /// Pointer to the schema's type descriptor table.
     pub types: *const FlatTypeInfo,
+    /// Number of entries in `types`.
     pub type_count: u32,
+    /// Pointer to the schema's constructor descriptor table.
     pub ctors: *const FlatCtorInfo,
+    /// Number of entries in `ctors`.
     pub ctor_count: u32,
     /// The type index of the root (`file`).
     pub root_type: u32,
@@ -320,6 +385,7 @@ pub struct FlatSchema {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct FlatSection {
+    /// Base pointer to the section's array buffer.
     pub ptr: *mut u8,
     /// Element count.
     pub len: u32,
@@ -327,18 +393,20 @@ pub struct FlatSection {
     pub stride: u32,
 }
 
-/// A parsed tree, owned by the library. The host holds the pointer, walks
-/// the sections in place, and frees through `release` — never directly, so
-/// trees from N dialect libraries can coexist without the host tracking
-/// which library owns what.
+/// A parsed tree, owned by the library.
 #[repr(C)]
 pub struct FlatTree {
+    /// Boundary ABI version (`ABI_VERSION`).
     pub abi_version: u32,
+    /// 64-bit FNV-1a hash of the source `.asdl` bytes.
     pub schema_hash: u64,
     /// Library-side destructor: frees the tree and every section.
     pub release: unsafe extern "C" fn(*mut FlatTree),
+    /// Pointer to the static schema descriptor of the library.
     pub schema: *const FlatSchema,
+    /// Pointer to the section array of length `section_count`.
     pub sections: *mut FlatSection,
+    /// Number of sections in `sections`.
     pub section_count: u32,
     /// The root node's index in the schema's `root_type` section.
     pub root_index: u32,
@@ -347,11 +415,17 @@ pub struct FlatTree {
 /// A loaded dialect library's descriptor: metadata + entry points.
 #[repr(C)]
 pub struct FlatDialect {
+    /// Boundary ABI version (`ABI_VERSION`).
     pub abi_version: u32,
+    /// 64-bit FNV-1a hash of the source `.asdl` bytes.
     pub schema_hash: u64,
+    /// Dialect identifier name (for example, `"snowflake"`).
     pub name: FlatName,
+    /// Dialect library version string (for example, `"1.0.0"`).
     pub dialect_version: FlatName,
+    /// Pointer to the static schema descriptor of the library.
     pub schema: *const FlatSchema,
+    /// Synchronous parse entry point of the dialect library.
     pub parse: FlatParseFn,
 }
 
@@ -385,18 +459,26 @@ unsafe impl Sync for FlatDialect {}
 #[derive(Debug)]
 pub enum AbiError {
     /// `abi_version` outside the supported range.
-    AbiVersion { found: u32, min: u32, max: u32 },
+    AbiVersion {
+        /// ABI version reported by the library or tree.
+        found: u32,
+        /// Minimum ABI version supported by the host.
+        min: u32,
+        /// Maximum ABI version supported by the host.
+        max: u32,
+    },
+    /// The `*mut FlatTree` pointer was null.
     NullTree,
+    /// The `*const FlatSchema` pointer was null.
     NullSchema,
 }
 
 impl std::fmt::Display for AbiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AbiError::AbiVersion { found, min, max } => write!(
-                f,
-                "unsupported sql-abi version {found} (this host reads {min}..={max})"
-            ),
+            AbiError::AbiVersion { found, min, max } => {
+                write!(f, "unsupported sql-abi version {found} (this host reads {min}..={max})")
+            }
             AbiError::NullTree => write!(f, "null tree"),
             AbiError::NullSchema => write!(f, "null schema"),
         }
@@ -439,15 +521,15 @@ pub unsafe fn validate_schema(schema: &FlatSchema) -> Result<(), String> {
             .ok_or_else(|| format!("type {name}: unknown kind {}", t.kind))?;
         let enc = FlatEnc::from_u8(t.enc)
             .ok_or_else(|| format!("type {name}: unknown encoding {}", t.enc))?;
-        let enc_ok = match (kind, enc) {
-            (FlatTypeKind::Product | FlatTypeKind::Sum, FlatEnc::Node) => true,
-            (FlatTypeKind::SimpleSum, FlatEnc::SimpleSum) => true,
-            (
-                FlatTypeKind::Builtin,
-                FlatEnc::Bool | FlatEnc::Byte | FlatEnc::Int | FlatEnc::Long | FlatEnc::Str,
-            ) => true,
-            _ => false,
-        };
+        let enc_ok = matches!(
+            (kind, enc),
+            (FlatTypeKind::Product | FlatTypeKind::Sum, FlatEnc::Node)
+                | (FlatTypeKind::SimpleSum, FlatEnc::SimpleSum)
+                | (
+                    FlatTypeKind::Builtin,
+                    FlatEnc::Bool | FlatEnc::Byte | FlatEnc::Int | FlatEnc::Long | FlatEnc::Str,
+                )
+        );
         if !enc_ok {
             return Err(format!("type {name}: kind {kind:?} with encoding {enc:?}"));
         }
@@ -465,16 +547,10 @@ pub unsafe fn validate_schema(schema: &FlatSchema) -> Result<(), String> {
                 let c = &ctors[(t.ctor_off + j) as usize];
                 let cname = c.name.as_str();
                 if c.type_index != i as u16 {
-                    return Err(format!(
-                        "constructor {cname}: lists owning type {}",
-                        c.type_index
-                    ));
+                    return Err(format!("constructor {cname}: lists owning type {}", c.type_index));
                 }
                 if c.tag != j as u16 {
-                    return Err(format!(
-                        "constructor {cname}: tag {} != its position {j}",
-                        c.tag
-                    ));
+                    return Err(format!("constructor {cname}: tag {} != its position {j}", c.tag));
                 }
                 if c.payload_section < -1 {
                     return Err(format!("constructor {cname}: section index below -1"));
@@ -523,10 +599,7 @@ fn validate_field_table(
                 | FlatEnc::Seq
         );
         if references_type && (f.type_index as u32) >= type_count {
-            return Err(format!(
-                "{owner}.{fname}: type index {} out of range",
-                f.type_index
-            ));
+            return Err(format!("{owner}.{fname}: type index {} out of range", f.type_index));
         }
     }
     Ok(())
@@ -572,10 +645,12 @@ impl Tree {
         Ok(Tree { raw })
     }
 
+    /// Returns the ABI version from the tree header.
     pub fn abi_version(&self) -> u32 {
         unsafe { (*self.raw).abi_version }
     }
 
+    /// Returns the 64-bit FNV-1a schema hash from the tree header.
     pub fn schema_hash(&self) -> u64 {
         unsafe { (*self.raw).schema_hash }
     }
@@ -651,7 +726,7 @@ impl Tree {
     }
 
     /// The node's constructor tag within its sum, for typed projections.
-    pub(crate) fn sum_tag(&self, ty: u16, index: u32) -> Option<u16> {
+    pub fn sum_tag(&self, ty: u16, index: u32) -> Option<u16> {
         let t = self.type_info(ty);
         if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) || t.node_section < 0 {
             return None;
@@ -664,7 +739,7 @@ impl Tree {
 
     /// (record pointer, section stride) of a product node, for typed
     /// projections. None when `ty` is not a product.
-    pub(crate) fn product_ptr(&self, ty: u16, index: u32) -> Option<(*const u8, usize)> {
+    pub fn product_ptr(&self, ty: u16, index: u32) -> Option<(*const u8, usize)> {
         let t = self.type_info(ty);
         if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Product) || t.node_section < 0 {
             return None;
@@ -675,7 +750,7 @@ impl Tree {
 
     /// (payload pointer, section stride) of a sum node's payload when its
     /// tag is `tag`, for typed projections.
-    pub(crate) fn payload_ptr(&self, ty: u16, index: u32, tag: u16) -> Option<(*const u8, usize)> {
+    pub fn payload_ptr(&self, ty: u16, index: u32, tag: u16) -> Option<(*const u8, usize)> {
         let t = self.type_info(ty);
         if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) || t.node_section < 0 {
             return None;
@@ -717,11 +792,7 @@ impl Tree {
                 }
                 let (pbase, pstride) = self.section(ctor.payload_section);
                 let fields = unsafe { table(ctor.fields, ctor.field_count) };
-                (
-                    (pbase + node.payload as usize * pstride) as *const u8,
-                    fields,
-                    Some(ctor),
-                )
+                ((pbase + node.payload as usize * pstride) as *const u8, fields, Some(ctor))
             }
         }
     }
@@ -778,7 +849,11 @@ impl Tree {
                 if index == NONE_U32 {
                     Value::None
                 } else {
-                    Value::Node(Node { tree: self, ty: f.type_index, index })
+                    Value::Node(Node {
+                        tree: self,
+                        ty: f.type_index,
+                        index,
+                    })
                 }
             }
             FlatEnc::Seq => Value::Seq(SeqView {
@@ -879,15 +954,22 @@ impl<'t> Node<'t> {
 pub enum Value<'t> {
     /// An optional field holding None.
     None,
+    /// A boolean value.
     Bool(bool),
+    /// A byte (`u8`) value.
     Byte(u8),
+    /// A 32-bit signed integer (`i32`) value.
     Int(i32),
+    /// A 64-bit signed integer (`i64`) value.
     Long(i64),
+    /// A borrowed UTF-8 string slice from the tree's string section.
     Str(&'t str),
     /// A simple-sum value: `(type_index, tag)`. The variant name resolves
     /// through [`Tree::simple_variant_name`].
     SimpleSum(u16, u8),
+    /// A child AST node cursor.
     Node(Node<'t>),
+    /// A lazy view over a sequence field.
     Seq(SeqView<'t>),
 }
 
@@ -900,10 +982,12 @@ pub struct SeqView<'t> {
 }
 
 impl<'t> SeqView<'t> {
+    /// Returns the number of elements in the sequence.
     pub fn len(self) -> usize {
         self.seq.len as usize
     }
 
+    /// Returns `true` if the sequence contains no elements.
     pub fn is_empty(self) -> bool {
         self.seq.len == 0
     }
@@ -1007,10 +1091,10 @@ macro_rules! export_sql_dialect {
     ($entry:ident, $name:expr, $version:expr, $parse:expr) => {
         static DIALECT: $crate::FlatDialect = $crate::FlatDialect {
             abi_version: $crate::ABI_VERSION,
-            schema_hash: $crate::SCHEMA_HASH,
+            schema_hash: SCHEMA_HASH,
             name: $crate::FlatName::from_static($name),
             dialect_version: $crate::FlatName::from_static($version),
-            schema: &$crate::SCHEMA,
+            schema: &SCHEMA,
             parse: {
                 unsafe extern "C" fn wrapped(
                     src: *const u8,
@@ -1034,28 +1118,6 @@ macro_rules! export_sql_dialect {
         }
     };
 }
-
-/// Escape and quote a string the way the Sexpr rendering does (C-style
-/// escapes; control characters as `\u{..}`). Shared by the introspection
-/// renderer.
-pub(crate) fn write_escaped(s: &str, out: &mut String) {
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => {
-                write!(out, "\\u{{{:x}}}", c as u32).expect("writing to a String cannot fail");
-            }
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-}
-
 fn camel_sexpr(name: &str) -> String {
     name.split('_')
         .map(|p| p[..1].to_uppercase() + &p[1..])
@@ -1141,7 +1203,6 @@ fn push_int(v: i64, out: &mut String) {
 
 /// The host-side loader: `dlopen` a dialect library, run the once-per-library
 /// handshake, and hand out parsed trees.
-#[allow(unexpected_cfgs)]
 #[cfg(feature = "loader")]
 pub mod loader {
     use std::path::Path;
@@ -1267,6 +1328,5 @@ pub mod loader {
     }
 }
 
-#[allow(unexpected_cfgs)]
 #[cfg(feature = "loader")]
 pub use loader::{Dialect, LoadError};

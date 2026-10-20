@@ -943,102 +943,130 @@ fn emit_stable(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
     emit!(w, "// ------------------------------------------------------------------");
     emit!(w, "");
 
-    for info in stable {
+    for info in &stable {
+        if info.kind != InfoKind::CompoundSum {
+            continue;
+        }
         let r = &info.rust;
-        match info.kind {
-            InfoKind::Product => {
-                emit!(w, "impl<'t> Node<'t> {{");
-                emit!(w, "    /// This node as the @stable `{}` record, when it IS", info.name);
-                emit!(w, "    /// a `{}`. The record shape is guaranteed by the", info.name);
-                emit!(w, "    /// load-time `abi_version` handshake; the stride check below");
-                emit!(w, "    /// is the per-call assertion of that contract.");
-                emit!(w, "    pub fn as_{}(self) -> Option<&'t {r}> {{", info.name);
-                emit!(w, "        let tree = self.tree();");
-                emit!(w, "        let ty = tree.type_by_name(\"{}\")?;", info.name);
-                emit!(w, "        if ty != self.type_index() {{");
-                emit!(w, "            return None;");
-                emit!(w, "        }}");
-                emit!(w, "        let (ptr, stride) = tree.product_ptr(ty, self.index())?;");
-                emit!(w, "        if stride != std::mem::size_of::<{r}>() {{");
-                emit!(w, "            return None;");
-                emit!(w, "        }}");
-                emit!(w, "        Some(unsafe {{ &*(ptr as *const {r}) }})");
-                emit!(w, "    }}");
-                emit!(w, "}}");
+        emit!(w, "/// A @stable `{}` node: the typed projection over the", info.name);
+        emit!(w, "/// frozen layout.");
+        emit!(w, "#[derive(Clone, Copy)]");
+        emit!(w, "pub struct Stable{r}<'t> {{");
+        emit!(w, "    node: Node<'t>,");
+        emit!(w, "}}");
+        emit!(w, "");
+        emit!(w, "impl<'t> Stable{r}<'t> {{");
+        emit!(w, "    /// The generic cursor, for ports and introspection.");
+        emit!(w, "    pub fn node(self) -> Node<'t> {{");
+        emit!(w, "        self.node");
+        emit!(w, "    }}");
+        emit!(w, "");
+        emit!(w, "    /// The constructor tag.");
+        emit!(w, "    pub fn tag(self) -> Option<{r}Tag> {{");
+        emit!(w, "        let tree = self.node.tree();");
+        emit!(w, "        let ty = tree.type_by_name(\"{}\")?;", info.name);
+        emit!(w, "        {r}Tag::from_u16(tree.sum_tag(ty, self.node.index())?)");
+        emit!(w, "    }}");
+        for c in &info.constructors {
+            if !info.ctor_has_record(c) {
+                continue;
+            }
+            let cname = camel(&c.name);
+            emit!(w, "");
+            emit!(w, "    /// The payload as `{cname}`, when that is the constructor.");
+            emit!(
+                w,
+                "    pub fn as_{}(self) -> Option<&'t {}::{cname}> {{",
+                uncamel(&cname),
+                info.name
+            );
+            emit!(w, "        let tree = self.node.tree();");
+            emit!(w, "        let ty = tree.type_by_name(\"{}\")?;", info.name);
+            emit!(w, "        let (ptr, stride) =");
+            emit!(
+                w,
+                "            tree.payload_ptr(ty, self.node.index(), {r}Tag::{cname} as u16)?;"
+            );
+            emit!(w, "        if stride != std::mem::size_of::<{}::{cname}>() {{", info.name);
+            emit!(w, "            return None;");
+            emit!(w, "        }}");
+            emit!(w, "        Some(unsafe {{ &*(ptr as *const {}::{cname}) }})", info.name);
+            emit!(w, "    }}");
+        }
+        emit!(w, "}}");
+        emit!(w, "");
+    }
+
+    let projectable: Vec<&&TypeInfo> = stable
+        .iter()
+        .filter(|info| matches!(info.kind, InfoKind::Product | InfoKind::CompoundSum))
+        .collect();
+    if !projectable.is_empty() {
+        emit!(w, "/// Typed `@stable` projections on [`Node`].");
+        emit!(w, "pub trait StableNodeExt<'t> {{");
+        for (i, info) in projectable.iter().enumerate() {
+            if i > 0 {
                 emit!(w, "");
             }
-            InfoKind::CompoundSum => {
-                emit!(w, "/// A @stable `{}` node: the typed projection over the", info.name);
-                emit!(w, "/// frozen layout.");
-                emit!(w, "#[derive(Clone, Copy)]");
-                emit!(w, "pub struct Stable{r}<'t> {{");
-                emit!(w, "    node: Node<'t>,");
-                emit!(w, "}}");
+            let r = &info.rust;
+            match info.kind {
+                InfoKind::Product => {
+                    emit!(w, "    /// This node as the @stable `{}` record, when it IS", info.name);
+                    emit!(w, "    /// a `{}`. The record shape is guaranteed by the", info.name);
+                    emit!(w, "    /// load-time `abi_version` handshake; the stride check below");
+                    emit!(w, "    /// is the per-call assertion of that contract.");
+                    emit!(w, "    fn as_{}(self) -> Option<&'t {r}>;", info.name);
+                }
+                InfoKind::CompoundSum => {
+                    emit!(w, "    /// This node as a @stable `{}`, when it IS one.", info.name);
+                    emit!(w, "    /// The record shape is guaranteed by the load-time");
+                    emit!(w, "    /// `abi_version` handshake.");
+                    emit!(w, "    fn as_{}(self) -> Option<Stable{r}<'t>>;", info.name);
+                }
+                InfoKind::SimpleSum => {}
+            }
+        }
+        emit!(w, "}}");
+        emit!(w, "");
+        emit!(w, "impl<'t> StableNodeExt<'t> for Node<'t> {{");
+        for (i, info) in projectable.iter().enumerate() {
+            if i > 0 {
                 emit!(w, "");
-                emit!(w, "impl<'t> Node<'t> {{");
-                emit!(w, "    /// This node as a @stable `{}`, when it IS one.", info.name);
-                emit!(w, "    /// The record shape is guaranteed by the load-time");
-                emit!(w, "    /// `abi_version` handshake.");
-                emit!(w, "    pub fn as_{}(self) -> Option<Stable{r}<'t>> {{", info.name);
-                emit!(w, "        let tree = self.tree();");
-                emit!(
-                    w,
-                    "        if tree.type_by_name(\"{}\") != Some(self.type_index()) {{",
-                    info.name
-                );
-                emit!(w, "            return None;");
-                emit!(w, "        }}");
-                emit!(w, "        Some(Stable{r} {{ node: self }})");
-                emit!(w, "    }}");
-                emit!(w, "}}");
-                emit!(w, "");
-                emit!(w, "impl<'t> Stable{r}<'t> {{");
-                emit!(w, "    /// The generic cursor, for ports and introspection.");
-                emit!(w, "    pub fn node(self) -> Node<'t> {{");
-                emit!(w, "        self.node");
-                emit!(w, "    }}");
-                emit!(w, "");
-                emit!(w, "    /// The constructor tag.");
-                emit!(w, "    pub fn tag(self) -> Option<{r}Tag> {{");
-                emit!(w, "        let tree = self.node.tree();");
-                emit!(w, "        let ty = tree.type_by_name(\"{}\")?;", info.name);
-                emit!(w, "        {r}Tag::from_u16(tree.sum_tag(ty, self.node.index())?)");
-                emit!(w, "    }}");
-                for c in &info.constructors {
-                    if !info.ctor_has_record(c) {
-                        continue;
-                    }
-                    let cname = camel(&c.name);
-                    emit!(w, "");
-                    emit!(w, "    /// The payload as `{cname}`, when that is the constructor.");
-                    emit!(
-                        w,
-                        "    pub fn as_{}(self) -> Option<&'t {}::{cname}> {{",
-                        uncamel(&cname),
-                        info.name
-                    );
-                    emit!(w, "        let tree = self.node.tree();");
+            }
+            let r = &info.rust;
+            match info.kind {
+                InfoKind::Product => {
+                    emit!(w, "    fn as_{}(self) -> Option<&'t {r}> {{", info.name);
+                    emit!(w, "        let tree = self.tree();");
                     emit!(w, "        let ty = tree.type_by_name(\"{}\")?;", info.name);
-                    emit!(w, "        let (ptr, stride) =");
+                    emit!(w, "        if ty != self.type_index() {{");
+                    emit!(w, "            return None;");
+                    emit!(w, "        }}");
+                    emit!(w, "        let (ptr, stride) = tree.product_ptr(ty, self.index())?;");
+                    emit!(w, "        if stride != std::mem::size_of::<{r}>() {{");
+                    emit!(w, "            return None;");
+                    emit!(w, "        }}");
+                    emit!(w, "        Some(unsafe {{ &*(ptr as *const {r}) }})");
+                    emit!(w, "    }}");
+                }
+                InfoKind::CompoundSum => {
+                    emit!(w, "    fn as_{}(self) -> Option<Stable{r}<'t>> {{", info.name);
+                    emit!(w, "        let tree = self.tree();");
                     emit!(
                         w,
-                        "            tree.payload_ptr(ty, self.node.index(), {r}Tag::{cname} as u16)?;"
-                    );
-                    emit!(
-                        w,
-                        "        if stride != std::mem::size_of::<{}::{cname}>() {{",
+                        "        if tree.type_by_name(\"{}\") != Some(self.type_index()) {{",
                         info.name
                     );
                     emit!(w, "            return None;");
                     emit!(w, "        }}");
-                    emit!(w, "        Some(unsafe {{ &*(ptr as *const {}::{cname}) }})", info.name);
+                    emit!(w, "        Some(Stable{r} {{ node: self }})");
                     emit!(w, "    }}");
                 }
-                emit!(w, "}}");
-                emit!(w, "");
+                InfoKind::SimpleSum => {}
             }
-            InfoKind::SimpleSum => {}
         }
+        emit!(w, "}}");
+        emit!(w, "");
     }
 }
 
@@ -1230,6 +1258,7 @@ fn emit_freeze(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
 
 fn emit_convert(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, TypeInfo>) {
     emit!(w, "use crate::*;");
+    emit!(w, "use dbt_asdl::*;");
     emit!(w, "use dbt_sql_ast as ast;");
     emit!(w, "");
     emit!(w, "/// Deep-convert a finished arena/owned tree (behind the read API) into");
@@ -1396,7 +1425,7 @@ pub(crate) fn generate_flat_from_module(
 
     flat.push(header.clone());
     emit!(flat, "");
-    flat.push(include_str!("flat_runtime.rs").trim_end().to_string());
+    emit!(flat, "use dbt_asdl::*;");
     emit!(flat, "");
     emit!(flat, "/// FNV-1a/64 of the sql.asdl bytes this build was generated from.");
     emit!(flat, "/// Library-side: the host reads the hash from the descriptor.");
@@ -1427,11 +1456,9 @@ pub(crate) fn generate_flat_from_module(
 /// The generator reads the ASDL specification at `src` and writes two files
 /// into the parent directory of `dst`:
 ///
-/// - `dst` (for example, `gen_flat.rs`): the flat ABI boundary runtime (`FlatTree`,
-///   `Tree`, `Node`, `Value`, `export_sql_dialect!`, and `loader`), `#[repr(C)]`
-///   record structs, typed node reference newtypes, constructor tag enums,
-///   `TreeBuilder`, `@stable` typed projections, layout freeze dump, and schema
-///   descriptor tables.
+/// - `dst` (for example, `gen_flat.rs`): `#[repr(C)]` record structs, typed node
+///   reference newtypes, constructor tag enums, `TreeBuilder`, `@stable` typed
+///   projections, layout freeze dump, and schema descriptor tables.
 /// - `gen_convert.rs`: functions that convert an arena or owned AST (through the
 ///   read-only view API) into the flat boundary representation.
 ///

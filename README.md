@@ -16,7 +16,7 @@ The Rust tree backend (`dbt_asdl::codegen::rust::generate_trees`) writes five so
 
 The flat Rust backend (`dbt_asdl::codegen::rust::generate_flat`) writes two source files for a stable `#[repr(C)]` ABI across shared library boundaries:
 
-- `<dst>`: the flat ABI boundary runtime (`FlatTree`, `Tree`, `Node`, `Value`, `export_sql_dialect!`, and `loader`), `#[repr(C)]` record structs, typed node reference newtypes, constructor tag enums, `TreeBuilder`, `@stable` typed projections, layout freeze dump, and schema descriptor tables.
+- `<dst>`: `#[repr(C)]` record structs, typed node reference newtypes, constructor tag enums, `TreeBuilder`, `@stable` typed projections, layout freeze dump, and schema descriptor tables.
 - `gen_convert.rs`: functions that convert an arena or owned AST (through the read-only view API) into the flat boundary representation.
 
 ## Usage in `build.rs`

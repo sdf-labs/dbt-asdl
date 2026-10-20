@@ -36,9 +36,11 @@ macro_rules! emit {
 
 pub(crate) mod asdl;
 pub(crate) mod flat;
+mod flat_runtime;
 pub(crate) mod rust;
 mod sexpr;
 
+pub use flat_runtime::*;
 pub use sexpr::{IdentList, Sexpr, StringList, StringListIter};
 /// Interned string type for ASDL `identifier` fields.
 pub use ustr::Ustr as Identifier;
