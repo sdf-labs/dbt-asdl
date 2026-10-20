@@ -6,10 +6,13 @@ expression: flat
 
 use dbt_asdl::*;
 
-/// FNV-1a/64 of the sql.asdl bytes this build was generated from.
+/// ABI version of the `@stable` region from the asdl specification.
+pub const ABI_VERSION: u32 = 1;
+
+/// FNV-1a/64 of the asdl source bytes this build was generated from.
 /// Library-side: the host reads the hash from the descriptor.
 #[cfg(feature = "builder")]
-pub const SCHEMA_HASH: u64 = 0x137950a988051183;
+pub const SCHEMA_HASH: u64 = 0x8c1b3eb1b28202a4;
 
 // A typed node reference per product and compound sum: a
 // repr(transparent) u32 index into the type's node section. NONE is
@@ -650,6 +653,7 @@ impl TreeBuilder {
         sec!(self.expr_seq, ExprRef);
         let sections = Box::into_raw(sections.into_boxed_slice());
         let tree = Box::new(FlatTree {
+            runtime_abi_version: RUNTIME_ABI_VERSION,
             abi_version: ABI_VERSION,
             schema_hash: SCHEMA_HASH,
             release,
@@ -1482,6 +1486,7 @@ static TYPES: &[FlatTypeInfo] = &[
 /// The schema of the sql.asdl this build was generated from.
 #[cfg(feature = "builder")]
 pub static SCHEMA: FlatSchema = FlatSchema {
+    runtime_abi_version: RUNTIME_ABI_VERSION,
     abi_version: ABI_VERSION,
     schema_hash: SCHEMA_HASH,
     types: TYPES.as_ptr(),

@@ -21,17 +21,23 @@ pub(crate) const KNOWN_ANNOTATIONS: &[&str] = &["stable"];
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Module {
     pub(crate) name: String,
+    pub(crate) version: u32,
     pub(crate) dfns: Vec<Type>,
     pub(crate) types: HashMap<String, TypeKind>,
 }
 
 impl Module {
-    pub(crate) fn new(name: String, dfns: Vec<Type>) -> Self {
+    pub(crate) fn new(name: String, version: u32, dfns: Vec<Type>) -> Self {
         let types = dfns
             .iter()
             .map(|t| (t.name.clone(), t.value.clone()))
             .collect();
-        Self { name, dfns, types }
+        Self {
+            name,
+            version,
+            dfns,
+            types,
+        }
     }
 }
 
@@ -178,6 +184,7 @@ impl std::error::Error for ASDLSyntaxError {}
 pub(crate) enum TokenKind {
     ConstructorId,
     TypeId,
+    Int,
     Equals,
     Comma,
     Question,
@@ -253,6 +260,12 @@ pub(crate) fn tokenize_asdl(buf: &str) -> Result<Vec<Token>, ASDLSyntaxError> {
                         value: word.to_string(),
                         lineno,
                     });
+                } else if word.chars().all(|c| c.is_ascii_digit()) {
+                    tokens.push(Token {
+                        kind: TokenKind::Int,
+                        value: word.to_string(),
+                        lineno,
+                    });
                 } else {
                     return Err(ASDLSyntaxError::new(
                         format!("Invalid operator {word}"),
@@ -320,10 +333,24 @@ impl ASDLParser {
             ));
         }
         let name = self.match_kinds(&[TokenKind::ConstructorId, TokenKind::TypeId])?;
+        let version = if self.at_keyword("version") {
+            let lineno = self.cur_token().map(|t| t.lineno);
+            self.advance();
+            let ver_str = self.match_kind(TokenKind::Int)?;
+            let ver: u32 = ver_str.parse().map_err(|_| {
+                ASDLSyntaxError::new(format!("Invalid version number {ver_str}"), lineno)
+            })?;
+            if ver == 0 {
+                return Err(ASDLSyntaxError::new("Module version must be >= 1", lineno));
+            }
+            ver
+        } else {
+            1
+        };
         self.match_kind(TokenKind::LBrace)?;
         let defs = self.parse_definitions()?;
         self.match_kind(TokenKind::RBrace)?;
-        Ok(Module::new(name, defs))
+        Ok(Module::new(name, version, defs))
     }
 
     fn parse_definitions(&mut self) -> Result<Vec<Type>, ASDLSyntaxError> {
