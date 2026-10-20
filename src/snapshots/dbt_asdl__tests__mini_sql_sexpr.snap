@@ -102,7 +102,7 @@ impl Sexpr for owned::DataType {
     }
 }
 
-impl Sexpr for arena::DataType {
+impl<'a> Sexpr for &'a arena::DataType<'a> {
     fn write_sexpr(&self, out: &mut String) {
         DataTypeRef::Arena(self).write_sexpr(out);
     }

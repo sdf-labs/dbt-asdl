@@ -9,7 +9,7 @@ use dbt_asdl::*;
 /// FNV-1a/64 of the sql.asdl bytes this build was generated from.
 /// Library-side: the host reads the hash from the descriptor.
 #[cfg(feature = "builder")]
-pub const SCHEMA_HASH: u64 = 0x222e5094e6a69073;
+pub const SCHEMA_HASH: u64 = 0x1c359912209ccbcb;
 
 // A typed node reference per product and compound sum: a
 // repr(transparent) u32 index into the type's node section. NONE is

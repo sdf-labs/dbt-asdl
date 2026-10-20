@@ -271,6 +271,9 @@ fn compute_value_semantics(order: &[String], infos: &mut HashMap<String, TypeInf
         if info.kind == InfoKind::SimpleSum {
             return false;
         }
+        if info.kind == InfoKind::CompoundSum {
+            return true;
+        }
         for f in all_fields(info) {
             if f.seq || f.ty == "string" {
                 return true;
@@ -1561,6 +1564,7 @@ pub(crate) fn generate(mod_node: &Module, input_name: &str) -> Result<GeneratedR
     emit!(shared, "");
     arena.push(header.clone());
     emit!(arena, "");
+    emit!(arena, "#[allow(unused_imports)]");
     emit!(arena, "use bumpalo::collections::Vec;");
     emit!(arena, "");
     emit!(arena, "pub use crate::shared::{{{shared_joined}}};");
