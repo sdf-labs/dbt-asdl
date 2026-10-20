@@ -48,7 +48,7 @@ pub enum DataTypeKind {
 #[derive(Clone, Copy, Debug)]
 pub enum DataTypeRef<'a> {
     Owned(&'a owned::DataType),
-    Arena(&'a arena::DataType),
+    Arena(&'a arena::DataType<'a>),
 }
 
 impl<'a> From<&'a owned::DataType> for DataTypeRef<'a> {
@@ -57,8 +57,8 @@ impl<'a> From<&'a owned::DataType> for DataTypeRef<'a> {
     }
 }
 
-impl<'a> From<&'a arena::DataType> for DataTypeRef<'a> {
-    fn from(node: &'a arena::DataType) -> Self {
+impl<'a> From<&'a arena::DataType<'a>> for DataTypeRef<'a> {
+    fn from(node: &'a arena::DataType<'a>) -> Self {
         DataTypeRef::Arena(node)
     }
 }

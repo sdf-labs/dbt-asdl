@@ -8,7 +8,7 @@ description = "ASDL parser and code generator for SQL-like AST definitions."
 license = "Apache-2.0"
 repository = "https://github.com/sdf-labs/dbt-asdl"
 readme = "README.md"
-exclude = ["src/snapshots/"]
+exclude = ["src/snapshots/", "tests/", "build.rs"]
 
 [features]
 loader = ["dep:libloading"]
@@ -18,6 +18,7 @@ libloading = { version = "0.8", optional = true }
 ustr = "1.1.0"
 
 [dev-dependencies]
+bumpalo = { version = "3.20.3", features = ["collections"] }
 insta = "1.49.0"
 
 [lints.rust]

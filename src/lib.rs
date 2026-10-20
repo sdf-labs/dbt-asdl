@@ -22,18 +22,7 @@
 //!     .expect("failed to generate flat Rust AST from sql.asdl");
 //! ```
 
-macro_rules! emit {
-    ($w:ident, "") => {
-        $w.push(String::new())
-    };
-    ($w:ident, $lit:literal) => {
-        $w.push(format!($lit))
-    };
-    ($w:ident, $fmt:literal, $($arg:tt)*) => {
-        $w.push(format!($fmt, $($arg)*))
-    };
-}
-
+#[macro_use]
 pub(crate) mod asdl;
 pub(crate) mod flat;
 mod flat_runtime;
@@ -61,34 +50,7 @@ mod tests {
     use crate::flat::{fnv1a64, generate_flat_from_module};
     use crate::rust::{CodegenError, generate};
 
-    const MINI_SQL_ASDL: &str = r#"
--- Miniature SQL ASDL specification for testing
-module MiniSql {
-  code_location = (int? lineno, int? col_offset, long? index)
-  span = (code_location start, code_location end)
-
-  bin_op = Add | Sub | Eq
-
-  @stable
-  data_type = Int(bool? unsigned, byte? width)
-            | Bool
-            attributes (span span, bool nullable)
-
-  literal = Number(string text)
-          | String(string value)
-          | Null
-          attributes (span span)
-
-  when_then = (expr when, expr then)
-
-  expr = Identifier(identifier* parts)
-       | Literal(literal value)
-       | BinaryOp(expr left, bin_op op, expr right)
-       | Case(expr? operand, when_then* cases, expr? else)
-       | Cast(expr e, data_type to, string* notes)
-       attributes (span span)
-}
-"#;
+    const MINI_SQL_ASDL: &str = include_str!("../tests/fixtures/mini_sql.asdl");
 
     #[test]
     fn parses_and_checks_mini_asdl() {

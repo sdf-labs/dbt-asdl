@@ -1,3 +1,15 @@
+macro_rules! emit {
+    ($w:ident, "") => {
+        $w.push(String::new())
+    };
+    ($w:ident, $lit:literal) => {
+        $w.push(format!($lit))
+    };
+    ($w:ident, $fmt:literal, $($arg:tt)*) => {
+        $w.push(format!($fmt, $($arg)*))
+    };
+}
+
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
