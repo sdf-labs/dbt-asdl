@@ -56,8 +56,9 @@ mod tests {
     fn parses_and_checks_mini_asdl() {
         let mod_node = parse_str(MINI_SQL_ASDL).expect("mini.asdl parses");
         assert_eq!(mod_node.name, "MiniSql");
-        assert_eq!(mod_node.dfns.len(), 7);
+        assert_eq!(mod_node.dfns.len(), 8);
         assert_eq!(mod_node.dfns[3].annotations, vec!["stable"]);
+        assert_eq!(mod_node.dfns[5].annotations, vec!["stable"]);
         let builtins = [
             "identifier",
             "string",
@@ -200,20 +201,11 @@ module Edge {
 
     #[test]
     fn generates_mini_sql_flat() {
-        let flat_spec = format!("{MINI_SQL_ASDL}\n")
-            .replace(
-                "  when_then = (expr when, expr then)\n",
-                "  @stable\n  when_then = (expr when, expr then, bin_op? op)\n",
-            )
-            .replace(
-                "       attributes (span span)\n}",
-                "       attributes (span span)\n\n  file = (expr* exprs, span* spans)\n}",
-            );
         let tmp_dir =
             std::env::temp_dir().join(format!("dbt_asdl_flat_test_{}", std::process::id()));
         std::fs::create_dir_all(&tmp_dir).unwrap();
         let spec_path = tmp_dir.join("mini_sql.asdl");
-        std::fs::write(&spec_path, &flat_spec).unwrap();
+        std::fs::write(&spec_path, MINI_SQL_ASDL).unwrap();
 
         let paths = generate_flat(&spec_path, tmp_dir.join("gen_flat.rs")).unwrap();
         assert_eq!(paths.len(), 2);

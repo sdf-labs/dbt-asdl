@@ -463,6 +463,14 @@ impl<'a> WhenThenRef<'a> {
             WhenThenRef::Arena(n) => ExprRef::Arena(n.then),
         }
     }
+
+    /// The `op` field.
+    pub fn op(self) -> Option<BinOp> {
+        match self {
+            WhenThenRef::Owned(n) => n.op,
+            WhenThenRef::Arena(n) => n.op,
+        }
+    }
 }
 /// A borrowed list of `when_then` nodes, in either tree
 /// representation.
@@ -888,6 +896,111 @@ impl<'a> ExprCastView<'a> {
             ExprRef::Owned(owned::Expr::Cast(p)) => dbt_asdl::StringList::Owned(&p.notes),
             ExprRef::Arena(arena::Expr::Cast(p)) => dbt_asdl::StringList::Arena(&p.notes),
             _ => unreachable!("view checked the variant at construction"),
+        }
+    }
+}
+/// A borrowed list of `expr` nodes, in either tree
+/// representation.
+#[derive(Clone, Copy, Debug)]
+pub enum ExprList<'a> {
+    Owned(&'a [owned::Expr]),
+    Arena(&'a [arena::ExprRef<'a>]),
+}
+
+impl<'a> ExprList<'a> {
+    /// The number of nodes in the list.
+    pub fn len(self) -> usize {
+        match self {
+            ExprList::Owned(s) => s.len(),
+            ExprList::Arena(s) => s.len(),
+        }
+    }
+
+    /// Whether the list holds no nodes.
+    pub fn is_empty(self) -> bool {
+        self.len() == 0
+    }
+
+    /// The node at `i`, or None when out of bounds.
+    pub fn get(self, i: usize) -> Option<ExprRef<'a>> {
+        match self {
+            ExprList::Owned(s) => s.get(i).map(ExprRef::Owned),
+            ExprList::Arena(s) => s.get(i).copied().map(ExprRef::Arena),
+        }
+    }
+
+    /// Iterate over the nodes, as `XRef` handles.
+    pub fn iter(self) -> ExprListIter<'a> {
+        ExprListIter { list: self, next: 0 }
+    }
+}
+
+/// An iterator over a `ExprList`.
+pub struct ExprListIter<'a> {
+    list: ExprList<'a>,
+    next: usize,
+}
+
+impl<'a> Iterator for ExprListIter<'a> {
+    type Item = ExprRef<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let item = self.list.get(self.next)?;
+        self.next += 1;
+        Some(item)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.list.len() - self.next;
+        (remaining, Some(remaining))
+    }
+}
+
+impl ExactSizeIterator for ExprListIter<'_> {}
+
+impl<'a> IntoIterator for ExprList<'a> {
+    type Item = ExprRef<'a>;
+    type IntoIter = ExprListIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+/// A read-only reference to a `file` node, in either tree
+/// representation: what every accessor takes and returns.
+#[derive(Clone, Copy, Debug)]
+pub enum FileRef<'a> {
+    Owned(&'a owned::File),
+    Arena(&'a arena::File<'a>),
+}
+
+impl<'a> From<&'a owned::File> for FileRef<'a> {
+    fn from(node: &'a owned::File) -> Self {
+        FileRef::Owned(node)
+    }
+}
+
+impl<'a> From<&'a arena::File<'a>> for FileRef<'a> {
+    fn from(node: &'a arena::File<'a>) -> Self {
+        FileRef::Arena(node)
+    }
+}
+
+impl<'a> FileRef<'a> {
+    /// The `exprs` field.
+    pub fn exprs(self) -> ExprList<'a> {
+        match self {
+            FileRef::Owned(n) => ExprList::Owned(&n.exprs),
+            FileRef::Arena(n) => ExprList::Arena(&n.exprs),
+        }
+    }
+
+    /// The `spans` field.
+    pub fn spans(self) -> &'a [Span] {
+        match self {
+            FileRef::Owned(n) => &n.spans,
+            FileRef::Arena(n) => &n.spans,
         }
     }
 }

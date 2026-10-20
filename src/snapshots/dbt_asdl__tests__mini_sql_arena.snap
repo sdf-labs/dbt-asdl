@@ -355,6 +355,7 @@ pub type WhenThenMut<'a> = &'a mut WhenThen<'a>;
 pub struct WhenThen<'a> {
     pub when: ExprRef<'a>,
     pub then: ExprRef<'a>,
+    pub op: Option<BinOp>,
 }
 
 impl<'a> WhenThen<'a> {
@@ -363,6 +364,7 @@ impl<'a> WhenThen<'a> {
         crate::owned::WhenThen {
             when: Box::new(self.when.to_owned()),
             then: Box::new(self.then.to_owned()),
+            op: self.op,
         }
     }
 }
@@ -623,6 +625,31 @@ impl<'a> Expr<'a> {
                 crate::owned::Expr::Case(Box::new((**p).to_owned())),
             Self::Cast(p) =>
                 crate::owned::Expr::Cast(Box::new((**p).to_owned())),
+        }
+    }
+}
+
+/// A reference to a `file` node in the parse arena.
+pub type FileRef<'a> = &'a File<'a>;
+/// A mutable construction handle to a `file` node: a
+/// node is built and adjusted through this, then frozen into a
+/// `<T>Ref` (an automatic `&mut` -> `&` coercion) when it is linked
+/// into the tree. Only construction code sees these; readers get
+/// `<T>Ref`.
+pub type FileMut<'a> = &'a mut File<'a>;
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct File<'a> {
+    pub exprs: Vec<'a, ExprRef<'a>>,
+    pub spans: Vec<'a, Span>,
+}
+
+impl<'a> File<'a> {
+    /// Deep-convert this node into the self-owned tree.
+    pub fn to_owned(&self) -> crate::owned::File {
+        crate::owned::File {
+            exprs: self.exprs.iter().map(|x| (*x).to_owned()).collect(),
+            spans: self.spans.iter().copied().collect(),
         }
     }
 }

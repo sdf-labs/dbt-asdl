@@ -11,6 +11,7 @@ readme = "README.md"
 exclude = ["src/snapshots/", "tests/", "build.rs"]
 
 [features]
+default = ["loader"]
 loader = ["dep:libloading"]
 
 [dependencies]
