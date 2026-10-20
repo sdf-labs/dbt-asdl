@@ -107,7 +107,7 @@ fn write_slice_sexpr<T: Sexpr>(slice: &[T], out: &mut String) {
     out.push(']');
 }
 
-fn write_escaped(s: &str, out: &mut String) {
+pub(crate) fn write_escaped(s: &str, out: &mut String) {
     out.push('"');
     for c in s.chars() {
         match c {
