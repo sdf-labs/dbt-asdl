@@ -475,9 +475,9 @@ fn emit_tag_enums(
 fn emit_records(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, TypeInfo>) {
     emit!(w, "// The record types: one #[repr(C)] struct per product and per");
     emit!(w, "// payload-carrying constructor. Field order is attributes first,");
-    emit!(w, "// then declaration order; the C ABI fixes the layout. These same");
-    emit!(w, "// structs are the @stable types' typed projections: stability is a");
-    emit!(w, "// contract over this layout, not a second encoding.");
+    emit!(w, "// then declaration order. For @stable types, this layout is");
+    emit!(w, "// the public ABI contract and guaranteed by the load handshake,");
+    emit!(w, "// and thus can be directly projected over the flat buffers.");
     for d in &mod_node.dfns {
         let info = &infos[&d.name];
         if info.kind == InfoKind::Product {
@@ -663,14 +663,11 @@ fn emit_builder(
     }
     emit!(w, "        let sections = Box::into_raw(sections.into_boxed_slice());");
     emit!(w, "        let tree = Box::new(FlatTree {{");
-    emit!(w, "            runtime_abi_version: RUNTIME_ABI_VERSION,");
-    emit!(w, "            abi_version: ABI_VERSION,");
-    emit!(w, "            schema_hash: SCHEMA_HASH,");
-    emit!(w, "            release,");
-    emit!(w, "            schema: &SCHEMA,");
-    emit!(w, "            sections: sections as *mut FlatSection,");
     emit!(w, "            section_count: {},", layout.sections.len());
     emit!(w, "            root_index: root.0,");
+    emit!(w, "            schema: &SCHEMA,");
+    emit!(w, "            sections: sections as *mut FlatSection,");
+    emit!(w, "            release,");
     emit!(w, "        }});");
     emit!(w, "        Box::into_raw(tree)");
     emit!(w, "    }}");
@@ -736,67 +733,146 @@ fn emit_schema(
     emit!(w, "// ------------------------------------------------------------------");
     emit!(w, "");
 
-    fn field_table_name(owner: &str) -> String {
-        format!("FIELDS_{}", owner.replace("::", "_").to_uppercase())
+    struct StringPool {
+        bytes: String,
+        offsets: HashMap<String, (u16, u16)>,
     }
 
-    fn emit_field_table(
-        w: &mut Vec<String>,
-        owner: &str,
-        fields: &[Field],
-        infos: &HashMap<String, TypeInfo>,
-        layout: &Layout,
-    ) {
-        if fields.is_empty() {
-            return;
+    impl StringPool {
+        fn new() -> Self {
+            Self {
+                bytes: String::new(),
+                offsets: HashMap::new(),
+            }
         }
-        emit!(w, "#[cfg(feature = \"builder\")]");
-        emit!(w, "static {}: &[FlatFieldInfo] = &[", field_table_name(owner));
+
+        fn intern(&mut self, s: &str) -> Result<(u16, u16), CodegenError> {
+            if let Some(&entry) = self.offsets.get(s) {
+                return Ok(entry);
+            }
+            let off = u16::try_from(self.bytes.len()).map_err(|_| {
+                CodegenError("schema string pool exceeds u16::MAX bytes".to_string())
+            })?;
+            let len = u16::try_from(s.len()).map_err(|_| {
+                CodegenError(format!("schema identifier '{s}' exceeds u16::MAX bytes"))
+            })?;
+            self.bytes.push_str(s);
+            self.offsets.insert(s.to_string(), (off, len));
+            Ok((off, len))
+        }
+    }
+
+    struct FieldRow {
+        name: (u16, u16),
+        owner: String,
+        rust_field: String,
+        tidx_str: String,
+        enc: &'static str,
+    }
+
+    let mut pool = StringPool::new();
+    let mut field_rows: Vec<FieldRow> = Vec::new();
+    let mut product_field_range: HashMap<String, (u16, u16)> = HashMap::new();
+    let mut ctor_field_range: HashMap<(String, usize), (u16, u16)> = HashMap::new();
+
+    let push_fields = |owner: &str,
+                       fields: &[Field],
+                       pool: &mut StringPool,
+                       rows: &mut Vec<FieldRow>|
+     -> Result<(u16, u16), CodegenError> {
+        if fields.is_empty() {
+            return Ok((0, 0));
+        }
+        let foff = u16::try_from(rows.len())
+            .map_err(|_| CodegenError("schema field table exceeds u16::MAX entries".to_string()))?;
+        let fcnt = u16::try_from(fields.len())
+            .map_err(|_| CodegenError("record field count exceeds u16::MAX".to_string()))?;
         for f in fields {
             let fname = f.name.as_deref().unwrap();
+            let name = pool.intern(fname)?;
             let (enc, tidx) = field_enc(f, infos, layout);
-            let tidx_str = tidx.map_or_else(|| "u16::MAX".to_string(), |idx| idx.to_string());
-            emit!(w, "    FlatFieldInfo {{");
-            emit!(w, "        name: FlatName::from_static(\"{fname}\"),");
-            emit!(
-                w,
-                "        offset: std::mem::offset_of!({owner}, {}) as u32,",
-                rust_field(fname)
-            );
-            emit!(w, "        enc: FlatEnc::{enc} as u8,");
-            emit!(w, "        type_index: {tidx_str},");
-            emit!(w, "    }},");
+            let tidx_str = tidx.map_or_else(|| "NONE_U16".to_string(), |idx| idx.to_string());
+            rows.push(FieldRow {
+                name,
+                owner: owner.to_string(),
+                rust_field: rust_field(fname),
+                tidx_str,
+                enc,
+            });
         }
-        emit!(w, "];");
-        emit!(w, "");
-    }
+        Ok((foff, fcnt))
+    };
 
-    fn fields_ptr(owner: &str, fields: &[Field]) -> (String, String) {
-        if fields.is_empty() {
-            ("std::ptr::null()".to_string(), "0".to_string())
-        } else {
-            let t = field_table_name(owner);
-            (format!("{t}.as_ptr()"), format!("{t}.len() as u32"))
-        }
-    }
-
-    let mut product_fields: HashMap<String, (String, Vec<Field>)> = HashMap::new();
     for d in &mod_node.dfns {
         let info = &infos[&d.name];
         if info.kind == InfoKind::Product {
             let rf = info.record_fields(None);
-            emit_field_table(w, &info.rust, &rf, infos, layout);
-            product_fields.insert(info.name.clone(), (info.rust.clone(), rf));
+            let range = push_fields(&info.rust, &rf, &mut pool, &mut field_rows)?;
+            product_field_range.insert(info.name.clone(), range);
         } else if info.kind == InfoKind::CompoundSum {
-            for c in &info.constructors {
+            for (tag, c) in info.constructors.iter().enumerate() {
                 if info.ctor_has_record(c) {
                     let owner = format!("{}::{}", info.name, camel(&c.name));
                     let rf = info.record_fields(Some(c));
-                    emit_field_table(w, &owner, &rf, infos, layout);
+                    let range = push_fields(&owner, &rf, &mut pool, &mut field_rows)?;
+                    ctor_field_range.insert((info.name.clone(), tag), range);
                 }
             }
         }
     }
+
+    for d in &mod_node.dfns {
+        let info = &infos[&d.name];
+        if matches!(info.kind, InfoKind::SimpleSum | InfoKind::CompoundSum) {
+            for c in &info.constructors {
+                pool.intern(&camel(&c.name))?;
+            }
+        }
+    }
+
+    for t in &layout.types {
+        pool.intern(t)?;
+    }
+
+    emit!(w, "#[cfg(feature = \"builder\")]");
+    if 34 + pool.bytes.len() <= 80 {
+        emit!(w, "static SCHEMA_STRINGS: &[u8] = b\"{}\";", pool.bytes);
+    } else {
+        emit!(w, "static SCHEMA_STRINGS: &[u8] = b\"\\");
+        let chunks: Vec<&str> = pool
+            .bytes
+            .as_bytes()
+            .chunks(74)
+            .map(|c| std::str::from_utf8(c).unwrap())
+            .collect();
+        for (i, chunk) in chunks.iter().enumerate() {
+            if i + 1 < chunks.len() {
+                emit!(w, "    {chunk}\\");
+            } else {
+                emit!(w, "    {chunk}\";");
+            }
+        }
+    }
+    emit!(w, "");
+
+    emit!(w, "#[cfg(feature = \"builder\")]");
+    emit!(w, "static FIELDS: &[FlatFieldInfo] = &[");
+    for row in &field_rows {
+        let (off, len) = row.name;
+        emit!(w, "    FlatFieldInfo {{");
+        emit!(w, "        name: FlatName {{ off: {off}, len: {len} }},");
+        emit!(
+            w,
+            "        offset: std::mem::offset_of!({}, {}) as u16,",
+            row.owner,
+            row.rust_field
+        );
+        emit!(w, "        type_index: {},", row.tidx_str);
+        emit!(w, "        enc: FlatEnc::{} as u8,", row.enc);
+        emit!(w, "    }},");
+    }
+    emit!(w, "];");
+    emit!(w, "");
 
     emit!(w, "#[cfg(feature = \"builder\")]");
     emit!(w, "static CTORS: &[FlatCtorInfo] = &[");
@@ -806,21 +882,21 @@ fn emit_schema(
             continue;
         }
         for (tag, c) in info.constructors.iter().enumerate() {
-            let (fptr, fcnt, psec) =
-                if let Some(&sec) = layout.payload_section.get(&(info.name.clone(), tag)) {
-                    let owner = format!("{}::{}", info.name, camel(&c.name));
-                    let rf = info.record_fields(Some(c));
-                    let (fp, fc) = fields_ptr(&owner, &rf);
-                    (fp, fc, sec.to_string())
-                } else {
-                    ("std::ptr::null()".to_string(), "0".to_string(), "-1".to_string())
-                };
+            let (off, len) = pool.intern(&camel(&c.name))?;
+            let psec = layout
+                .payload_section
+                .get(&(info.name.clone(), tag))
+                .map_or_else(|| "NONE_U16".to_string(), |sec| sec.to_string());
+            let (foff, fcnt) = ctor_field_range
+                .get(&(info.name.clone(), tag))
+                .copied()
+                .unwrap_or((0, 0));
             emit!(w, "    FlatCtorInfo {{");
-            emit!(w, "        name: FlatName::from_static(\"{}\"),", camel(&c.name));
+            emit!(w, "        name: FlatName {{ off: {off}, len: {len} }},");
             emit!(w, "        tag: {tag},");
             emit!(w, "        type_index: {},", info.type_index.unwrap());
             emit!(w, "        payload_section: {psec},");
-            emit!(w, "        fields: {fptr},");
+            emit!(w, "        field_off: {foff},");
             emit!(w, "        field_count: {fcnt},");
             emit!(w, "    }},");
         }
@@ -831,15 +907,16 @@ fn emit_schema(
     emit!(w, "#[cfg(feature = \"builder\")]");
     emit!(w, "static TYPES: &[FlatTypeInfo] = &[");
     for t in &layout.types {
-        let (kind, enc, node_section, seq_section, ctor_off, ctor_count, fptr, fcnt) =
+        let (off, len) = pool.intern(t)?;
+        let (kind, enc, node_section, seq_section, ctor_off, ctor_count, foff, fcnt) =
             if BUILTIN_TYPES.contains(&t.as_str()) {
                 let kind = "Builtin";
                 let enc = builtin_enc(t).unwrap();
-                let node_section = "-1".to_string();
+                let node_section = "NONE_U16".to_string();
                 let seq_section = layout
                     .seq_pool_section
                     .get(t)
-                    .map_or_else(|| "-1".to_string(), |idx| idx.to_string());
+                    .map_or_else(|| "NONE_U16".to_string(), |idx| idx.to_string());
                 (
                     kind,
                     enc,
@@ -847,8 +924,8 @@ fn emit_schema(
                     seq_section,
                     "0".to_string(),
                     "0".to_string(),
-                    "std::ptr::null()".to_string(),
-                    "0".to_string(),
+                    0u16,
+                    0u16,
                 )
             } else {
                 let info = &infos[t];
@@ -864,33 +941,32 @@ fn emit_schema(
                 };
                 let node_section = info
                     .node_section
-                    .map_or_else(|| "-1".to_string(), |idx| idx.to_string());
+                    .map_or_else(|| "NONE_U16".to_string(), |idx| idx.to_string());
                 let seq_section = info
                     .seq_section
-                    .map_or_else(|| "-1".to_string(), |idx| idx.to_string());
+                    .map_or_else(|| "NONE_U16".to_string(), |idx| idx.to_string());
                 let (ctor_off, ctor_count) =
                     if matches!(info.kind, InfoKind::SimpleSum | InfoKind::CompoundSum) {
                         (info.ctor_off.unwrap().to_string(), info.constructors.len().to_string())
                     } else {
                         ("0".to_string(), "0".to_string())
                     };
-                let (fptr, fcnt) = if info.kind == InfoKind::Product {
-                    let (owner, fields) = &product_fields[&info.name];
-                    fields_ptr(owner, fields)
+                let (foff, fcnt) = if info.kind == InfoKind::Product {
+                    product_field_range[&info.name]
                 } else {
-                    ("std::ptr::null()".to_string(), "0".to_string())
+                    (0, 0)
                 };
-                (kind, enc, node_section, seq_section, ctor_off, ctor_count, fptr, fcnt)
+                (kind, enc, node_section, seq_section, ctor_off, ctor_count, foff, fcnt)
             };
         emit!(w, "    FlatTypeInfo {{");
-        emit!(w, "        name: FlatName::from_static(\"{t}\"),");
+        emit!(w, "        name: FlatName {{ off: {off}, len: {len} }},");
         emit!(w, "        kind: FlatTypeKind::{kind} as u8,");
         emit!(w, "        enc: FlatEnc::{enc} as u8,");
         emit!(w, "        node_section: {node_section},");
         emit!(w, "        seq_section: {seq_section},");
         emit!(w, "        ctor_off: {ctor_off},");
         emit!(w, "        ctor_count: {ctor_count},");
-        emit!(w, "        fields: {fptr},");
+        emit!(w, "        field_off: {foff},");
         emit!(w, "        field_count: {fcnt},");
         emit!(w, "    }},");
     }
@@ -907,11 +983,15 @@ fn emit_schema(
     emit!(w, "    runtime_abi_version: RUNTIME_ABI_VERSION,");
     emit!(w, "    abi_version: ABI_VERSION,");
     emit!(w, "    schema_hash: SCHEMA_HASH,");
-    emit!(w, "    types: TYPES.as_ptr(),");
-    emit!(w, "    type_count: TYPES.len() as u32,");
-    emit!(w, "    ctors: CTORS.as_ptr(),");
-    emit!(w, "    ctor_count: CTORS.len() as u32,");
+    emit!(w, "    strings_len: SCHEMA_STRINGS.len() as u32,");
+    emit!(w, "    type_count: TYPES.len() as u16,");
+    emit!(w, "    ctor_count: CTORS.len() as u16,");
+    emit!(w, "    field_count: FIELDS.len() as u16,");
     emit!(w, "    root_type: {root_type},");
+    emit!(w, "    strings: SCHEMA_STRINGS.as_ptr(),");
+    emit!(w, "    types: TYPES.as_ptr(),");
+    emit!(w, "    ctors: CTORS.as_ptr(),");
+    emit!(w, "    fields: FIELDS.as_ptr(),");
     emit!(w, "}};");
     emit!(w, "");
 
@@ -1013,8 +1093,7 @@ fn emit_stable(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
                 InfoKind::Product => {
                     emit!(w, "    /// This node as the @stable `{}` record, when it IS", info.name);
                     emit!(w, "    /// a `{}`. The record shape is guaranteed by the", info.name);
-                    emit!(w, "    /// load-time `abi_version` handshake; the stride check below");
-                    emit!(w, "    /// is the per-call assertion of that contract.");
+                    emit!(w, "    /// load-time `abi_version` handshake.");
                     emit!(w, "    fn as_{}(self) -> Option<&'t {r}>;", info.name);
                 }
                 InfoKind::CompoundSum => {
