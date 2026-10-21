@@ -475,9 +475,9 @@ fn emit_tag_enums(
 fn emit_records(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, TypeInfo>) {
     emit!(w, "// The record types: one #[repr(C)] struct per product and per");
     emit!(w, "// payload-carrying constructor. Field order is attributes first,");
-    emit!(w, "// then declaration order; the C ABI fixes the layout. These same");
-    emit!(w, "// structs are the @stable types' typed projections: stability is a");
-    emit!(w, "// contract over this layout, not a second encoding.");
+    emit!(w, "// then declaration order. For @stable types, this layout is");
+    emit!(w, "// the public ABI contract and guaranteed by the load handshake,");
+    emit!(w, "// and thus can be directly projected over the flat buffers.");
     for d in &mod_node.dfns {
         let info = &infos[&d.name];
         if info.kind == InfoKind::Product {
@@ -835,7 +835,24 @@ fn emit_schema(
     }
 
     emit!(w, "#[cfg(feature = \"builder\")]");
-    emit!(w, "static SCHEMA_STRINGS: &[u8] = b\"{}\";", pool.bytes);
+    if 34 + pool.bytes.len() <= 80 {
+        emit!(w, "static SCHEMA_STRINGS: &[u8] = b\"{}\";", pool.bytes);
+    } else {
+        emit!(w, "static SCHEMA_STRINGS: &[u8] = b\"\\");
+        let chunks: Vec<&str> = pool
+            .bytes
+            .as_bytes()
+            .chunks(74)
+            .map(|c| std::str::from_utf8(c).unwrap())
+            .collect();
+        for (i, chunk) in chunks.iter().enumerate() {
+            if i + 1 < chunks.len() {
+                emit!(w, "    {chunk}\\");
+            } else {
+                emit!(w, "    {chunk}\";");
+            }
+        }
+    }
     emit!(w, "");
 
     emit!(w, "#[cfg(feature = \"builder\")]");
@@ -1076,8 +1093,7 @@ fn emit_stable(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
                 InfoKind::Product => {
                     emit!(w, "    /// This node as the @stable `{}` record, when it IS", info.name);
                     emit!(w, "    /// a `{}`. The record shape is guaranteed by the", info.name);
-                    emit!(w, "    /// load-time `abi_version` handshake; the stride check below");
-                    emit!(w, "    /// is the per-call assertion of that contract.");
+                    emit!(w, "    /// load-time `abi_version` handshake.");
                     emit!(w, "    fn as_{}(self) -> Option<&'t {r}>;", info.name);
                 }
                 InfoKind::CompoundSum => {

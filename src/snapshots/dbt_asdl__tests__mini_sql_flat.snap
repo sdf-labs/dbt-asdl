@@ -197,9 +197,9 @@ impl ExprTag {
 
 // The record types: one #[repr(C)] struct per product and per
 // payload-carrying constructor. Field order is attributes first,
-// then declaration order; the C ABI fixes the layout. These same
-// structs are the @stable types' typed projections: stability is a
-// contract over this layout, not a second encoding.
+// then declaration order. For @stable types, this layout is
+// the public ABI contract and guaranteed by the load handshake,
+// and thus can be directly projected over the flat buffers.
 
 /// The `code_location` record.
 #[repr(C)]
@@ -779,8 +779,7 @@ pub trait StableNodeExt<'t>: Copy {
 
     /// This node as the @stable `when_then` record, when it IS
     /// a `when_then`. The record shape is guaranteed by the
-    /// load-time `abi_version` handshake; the stride check below
-    /// is the per-call assertion of that contract.
+    /// load-time `abi_version` handshake.
     fn as_when_then(self) -> Option<&'t WhenThen>;
 }
 
@@ -853,7 +852,11 @@ pub fn freeze_stable_layout() -> String {
 // ------------------------------------------------------------------
 
 #[cfg(feature = "builder")]
-static SCHEMA_STRINGS: &[u8] = b"linenocol_offsetindexstartendspannullableunsignedwidthtextvaluewhenthenoppartsleftrightoperandcaseselseetonotesexprsspansAddSubEqIntBoolNumberStringNullIdentifierLiteralBinaryOpCaseCastidentifierstringbyteintlongboolcode_locationbin_opdata_typeliteralwhen_thenexprfile";
+static SCHEMA_STRINGS: &[u8] = b"\
+    linenocol_offsetindexstartendspannullableunsignedwidthtextvaluewhenthenopp\
+    artsleftrightoperandcaseselseetonotesexprsspansAddSubEqIntBoolNumberString\
+    NullIdentifierLiteralBinaryOpCaseCastidentifierstringbyteintlongboolcode_l\
+    ocationbin_opdata_typeliteralwhen_thenexprfile";
 
 #[cfg(feature = "builder")]
 static FIELDS: &[FlatFieldInfo] = &[
