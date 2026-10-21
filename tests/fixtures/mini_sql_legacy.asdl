@@ -1,0 +1,30 @@
+-- Older compatible version of mini_sql.asdl (same ABI version 1, untouched @stable region)
+module MiniSql version 1 {
+  code_location = (int? lineno, int? col_offset, long? index)
+  span = (code_location start, code_location end)
+
+  bin_op = Add | Sub | Eq
+
+  @stable
+  data_type = Int(bool? unsigned, byte? width)
+            | Bool
+            attributes (span span, bool nullable)
+
+  literal = Boolean(bool val)
+          | Number(string text)
+          | String(string value)
+          attributes (span span)
+
+  @stable
+  when_then = (expr when, expr then, bin_op? op)
+
+  expr = Paren(expr inner)
+       | Identifier(identifier* parts)
+       | Literal(literal value)
+       | BinaryOp(expr left, bin_op op, expr right)
+       | Case(expr? operand, when_then* cases, expr? else)
+       | Cast(expr e, data_type to, string? legacy_hint)
+       attributes (span span)
+
+  file = (expr* exprs, span* spans)
+}

@@ -652,23 +652,26 @@ fn flat_abi_loads_cdylib_and_exercises_tree_across_boundary() {
 
     let dylib_path = mini_sql_dialect_cdylib();
 
-    match unsafe { Dialect::load(std::path::Path::new("/nonexistent/libfoo.so"), "mini") } {
+    match unsafe {
+        Dialect::load(std::path::Path::new("/nonexistent/libfoo.so"), "mini", gen_flat::ABI_VERSION)
+    } {
         Err(LoadError::Open(_)) => {}
         Err(other) => panic!("expected LoadError::Open, got {other:?}"),
         Ok(_) => panic!("expected LoadError::Open"),
     }
 
-    match unsafe { Dialect::load(&dylib_path, "nosuch") } {
+    match unsafe { Dialect::load(&dylib_path, "nosuch", gen_flat::ABI_VERSION) } {
         Err(LoadError::MissingSymbol(sym)) => assert_eq!(sym, "sql_dialect_nosuch"),
         Err(other) => panic!("expected LoadError::MissingSymbol, got {other:?}"),
         Ok(_) => panic!("expected LoadError::MissingSymbol"),
     }
 
-    let dialect = unsafe { Dialect::load(&dylib_path, "mini") }
+    let dialect = unsafe { Dialect::load(&dylib_path, "mini", gen_flat::ABI_VERSION) }
         .expect("load mini-sql-dialect shared library");
     assert_eq!(dialect.name(), "mini");
     assert_eq!(dialect.dialect_version(), "0.1.0");
-    assert_eq!(dialect.descriptor().abi_version, dbt_asdl::ABI_VERSION);
+    assert_eq!(dialect.descriptor().runtime_abi_version, dbt_asdl::RUNTIME_ABI_VERSION);
+    assert_eq!(dialect.descriptor().abi_version, gen_flat::ABI_VERSION);
     assert_ne!(dialect.schema_hash(), 0);
 
     match dialect.parse("") {
@@ -691,9 +694,11 @@ fn flat_abi_loads_cdylib_and_exercises_tree_across_boundary() {
     let tree_from_convert = dialect.parse("convert").expect("parse via convert_file");
     let tree_from_builder = dialect.parse("builder").expect("parse via TreeBuilder");
 
-    assert_eq!(tree_from_convert.abi_version(), dbt_asdl::ABI_VERSION);
+    assert_eq!(tree_from_convert.runtime_abi_version(), dbt_asdl::RUNTIME_ABI_VERSION);
+    assert_eq!(tree_from_convert.abi_version(), gen_flat::ABI_VERSION);
     assert_eq!(tree_from_convert.schema_hash(), dialect.schema_hash());
-    assert_eq!(tree_from_builder.abi_version(), dbt_asdl::ABI_VERSION);
+    assert_eq!(tree_from_builder.runtime_abi_version(), dbt_asdl::RUNTIME_ABI_VERSION);
+    assert_eq!(tree_from_builder.abi_version(), gen_flat::ABI_VERSION);
     assert_eq!(tree_from_builder.schema_hash(), dialect.schema_hash());
 
     let expected_sexpr = concat!(
@@ -876,4 +881,96 @@ fn flat_abi_loads_cdylib_and_exercises_tree_across_boundary() {
     assert!(freeze.contains("type data_type: sum\n"));
     assert!(freeze.contains("type when_then: product size "));
     assert!(freeze.contains("type bin_op: simple_sum (referenced by a stable field)\n"));
+}
+
+#[test]
+fn flat_abi_version_drift_and_incompatible_version_refusal() {
+    use dbt_asdl::{AbiError, Dialect, LoadError, Value};
+    use gen_flat::{DataTypeTag, StableNodeExt};
+
+    let dylib_path = mini_sql_dialect_cdylib();
+
+    match unsafe { Dialect::load(&dylib_path, "v2", gen_flat::ABI_VERSION) } {
+        Err(LoadError::Abi(AbiError::AbiVersion { found, expected })) => {
+            assert_eq!(found, 2);
+            assert_eq!(expected, 1);
+        }
+        Err(other) => panic!("expected AbiError::AbiVersion, got {other:?}"),
+        Ok(_) => panic!("expected version 2 library to be refused by version 1 host"),
+    }
+
+    let v2_dialect = unsafe { Dialect::load(&dylib_path, "v2", 2) }
+        .expect("load v2 dialect when expecting ABI version 2");
+    assert_eq!(v2_dialect.descriptor().abi_version, 2);
+
+    let current = unsafe { Dialect::load(&dylib_path, "mini", gen_flat::ABI_VERSION) }.unwrap();
+    let legacy = unsafe { Dialect::load(&dylib_path, "legacy", gen_flat::ABI_VERSION) }
+        .expect("host built from newer .asdl loads dialect built from older compatible .asdl");
+
+    assert_eq!(legacy.descriptor().abi_version, gen_flat::ABI_VERSION);
+    assert_ne!(legacy.schema_hash(), current.schema_hash());
+
+    let tree = legacy.parse("SELECT 1").expect("parse with legacy dialect");
+    assert_eq!(tree.abi_version(), gen_flat::ABI_VERSION);
+    assert_eq!(tree.schema_hash(), legacy.schema_hash());
+
+    let expected_legacy_sexpr = concat!(
+        "(File (exprs [(Cast",
+        " (e (Case (cases [(WhenThen",
+        " (when (Paren (inner (Identifier (parts [\"col\"])))))",
+        " (then (Literal (value (Boolean (val true)))))",
+        " (op Eq))])))",
+        " (to (Int (nullable true) (unsigned true) (width 32)))",
+        " (legacy_hint \"v1-hint\"))]))"
+    );
+    assert_eq!(tree.to_sexpr(), expected_legacy_sexpr);
+
+    let root = tree.root();
+    let Some(Value::Seq(exprs)) = root.field("exprs") else {
+        panic!("expected exprs sequence");
+    };
+    let Some(Value::Node(cast)) = exprs.get(0) else {
+        panic!("expected Cast node");
+    };
+    assert_eq!(cast.kind(), Some("Cast"));
+
+    assert!(cast.field("notes").is_none());
+    assert!(matches!(cast.field("legacy_hint"), Some(Value::Str("v1-hint"))));
+
+    assert!(tree.kind_by_name("Paren").is_some());
+    assert!(tree.kind_by_name("Boolean").is_some());
+    assert!(tree.kind_by_name("Null").is_none());
+
+    let case_node = child_node(cast, "e");
+    let Some(Value::Seq(cases)) = case_node.field("cases") else {
+        panic!("expected cases sequence");
+    };
+    let Some(Value::Node(wt_node)) = cases.get(0) else {
+        panic!("expected WhenThen node");
+    };
+
+    let wt_proj = wt_node
+        .as_when_then()
+        .expect("@stable when_then projection works across drifted schema");
+    assert_eq!(wt_proj.op, BinOp::Eq as u8);
+
+    let when_node = child_node(wt_node, "when");
+    assert_eq!(when_node.kind(), Some("Paren"));
+    let inner = child_node(when_node, "inner");
+    assert_eq!(inner.kind(), Some("Identifier"));
+
+    let then_node = child_node(wt_node, "then");
+    let lit_node = child_node(then_node, "value");
+    assert_eq!(lit_node.kind(), Some("Boolean"));
+    assert!(matches!(lit_node.field("val"), Some(Value::Bool(true))));
+
+    let to_node = child_node(cast, "to");
+    let dt = to_node
+        .as_data_type()
+        .expect("@stable data_type projection works across drifted schema");
+    assert_eq!(dt.tag(), Some(DataTypeTag::Int));
+    let dt_int = dt.as_int().expect("Int payload");
+    assert_eq!(dt_int.nullable, 1);
+    assert_eq!(dt_int.unsigned.get(), Some(true));
+    assert_eq!(dt_int.width.get(), Some(32));
 }

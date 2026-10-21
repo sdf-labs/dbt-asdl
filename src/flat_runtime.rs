@@ -2,17 +2,11 @@ use std::fmt::Write as _;
 
 use crate::sexpr::write_escaped;
 
-/// Layout version of the boundary: the descriptor and tree-record layout in
-/// this file, plus the `@stable` region's record layouts. A host supports a
-/// range of versions (backwards compatible, never forwards); a library
-/// outside the range is refused at load time, before any table is read.
-/// `@stable` is strict-only — the typed projections are integral to host
-/// operation — so a change to a `@stable` record's shape bumps this and
-/// raises the supported floor with it: within the supported range the
-/// stable records are byte-identical.
-pub const ABI_VERSION: u32 = 1;
-/// The oldest ABI version this build can read.
-pub const ABI_VERSION_MIN: u32 = 1;
+/// Layout version of the `dbt-asdl` boundary descriptor and tree-record structs
+/// (`FlatDialect`, `FlatSchema`, `FlatTree`, `FlatSection`, `FlatNode`, `FlatStr`,
+/// `FlatSeq`, and `Opt*`). Checked at load time before any schema table or
+/// schema-specific `abi_version` is read.
+pub const RUNTIME_ABI_VERSION: u32 = 1;
 
 /// The None sentinel for optional node references and optional string
 /// offsets.
@@ -365,7 +359,9 @@ pub struct FlatTypeInfo {
 /// by name, resolved at run time, never by hardcoded index.
 #[repr(C)]
 pub struct FlatSchema {
-    /// Boundary ABI version (`ABI_VERSION`).
+    /// Layout version of the `dbt-asdl` boundary descriptors (`RUNTIME_ABI_VERSION`).
+    pub runtime_abi_version: u32,
+    /// Schema ABI version from the `.asdl` specification (`ABI_VERSION`).
     pub abi_version: u32,
     /// 64-bit FNV-1a hash of the source `.asdl` bytes.
     pub schema_hash: u64,
@@ -396,7 +392,9 @@ pub struct FlatSection {
 /// A parsed tree, owned by the library.
 #[repr(C)]
 pub struct FlatTree {
-    /// Boundary ABI version (`ABI_VERSION`).
+    /// Layout version of the `dbt-asdl` boundary descriptors (`RUNTIME_ABI_VERSION`).
+    pub runtime_abi_version: u32,
+    /// Schema ABI version from the `.asdl` specification (`ABI_VERSION`).
     pub abi_version: u32,
     /// 64-bit FNV-1a hash of the source `.asdl` bytes.
     pub schema_hash: u64,
@@ -415,7 +413,9 @@ pub struct FlatTree {
 /// A loaded dialect library's descriptor: metadata + entry points.
 #[repr(C)]
 pub struct FlatDialect {
-    /// Boundary ABI version (`ABI_VERSION`).
+    /// Layout version of the `dbt-asdl` boundary descriptors (`RUNTIME_ABI_VERSION`).
+    pub runtime_abi_version: u32,
+    /// Schema ABI version from the `.asdl` specification (`ABI_VERSION`).
     pub abi_version: u32,
     /// 64-bit FNV-1a hash of the source `.asdl` bytes.
     pub schema_hash: u64,
@@ -456,16 +456,21 @@ unsafe impl Sync for FlatDialect {}
 // ---------------------------------------------------------------------------
 
 /// Why a tree or descriptor was refused at the boundary.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum AbiError {
-    /// `abi_version` outside the supported range.
-    AbiVersion {
-        /// ABI version reported by the library or tree.
+    /// `runtime_abi_version` does not match [`RUNTIME_ABI_VERSION`].
+    RuntimeAbiVersion {
+        /// Runtime ABI version reported by the library or tree.
         found: u32,
-        /// Minimum ABI version supported by the host.
-        min: u32,
-        /// Maximum ABI version supported by the host.
-        max: u32,
+        /// Runtime ABI version expected by this `dbt-asdl` build.
+        expected: u32,
+    },
+    /// Schema `abi_version` does not match the host's expected `ABI_VERSION`.
+    AbiVersion {
+        /// Schema ABI version reported by the library or tree.
+        found: u32,
+        /// Schema ABI version expected by the host.
+        expected: u32,
     },
     /// The `*mut FlatTree` pointer was null.
     NullTree,
@@ -476,8 +481,12 @@ pub enum AbiError {
 impl std::fmt::Display for AbiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AbiError::AbiVersion { found, min, max } => {
-                write!(f, "unsupported sql-abi version {found} (this host reads {min}..={max})")
+            AbiError::RuntimeAbiVersion { found, expected } => write!(
+                f,
+                "unsupported dbt-asdl runtime ABI version {found} (this host expects {expected})"
+            ),
+            AbiError::AbiVersion { found, expected } => {
+                write!(f, "unsupported schema ABI version {found} (this host expects {expected})")
             }
             AbiError::NullTree => write!(f, "null tree"),
             AbiError::NullSchema => write!(f, "null schema"),
@@ -491,16 +500,22 @@ impl std::error::Error for AbiError {}
 /// time: every `kind`/`enc` byte must decode and every table index must be
 /// in range, so the per-node reads afterwards never fail on skewed data.
 /// [`Tree::from_raw`] deliberately stays cheap; this is the handshake's
-/// second half (the first being the `abi_version` range check).
+/// second half (the first being the `abi_version` check).
 ///
 /// # Safety
 /// `schema` must be the descriptor of a dialect library whose
-/// `abi_version` this host supports; the tables are read in place from the
-/// library's memory.
-pub unsafe fn validate_schema(schema: &FlatSchema) -> Result<(), String> {
-    if !(ABI_VERSION_MIN..=ABI_VERSION).contains(&schema.abi_version) {
+/// `runtime_abi_version` matches [`RUNTIME_ABI_VERSION`]; the tables are read
+/// in place from the library's memory.
+pub unsafe fn validate_schema(schema: &FlatSchema, abi_version: u32) -> Result<(), String> {
+    if schema.runtime_abi_version != RUNTIME_ABI_VERSION {
         return Err(format!(
-            "schema abi_version {} outside the supported range {ABI_VERSION_MIN}..={ABI_VERSION}",
+            "schema runtime_abi_version {} does not match host RUNTIME_ABI_VERSION {RUNTIME_ABI_VERSION}",
+            schema.runtime_abi_version
+        ));
+    }
+    if schema.abi_version != abi_version {
+        return Err(format!(
+            "schema abi_version {} does not match host abi_version {abi_version}",
             schema.abi_version
         ));
     }
@@ -631,21 +646,33 @@ impl Tree {
         if raw.is_null() {
             return Err(AbiError::NullTree);
         }
-        let abi = unsafe { (*raw).abi_version };
-        if !(ABI_VERSION_MIN..=ABI_VERSION).contains(&abi) {
-            return Err(AbiError::AbiVersion {
-                found: abi,
-                min: ABI_VERSION_MIN,
-                max: ABI_VERSION,
+        let runtime_abi = unsafe { (*raw).runtime_abi_version };
+        if runtime_abi != RUNTIME_ABI_VERSION {
+            return Err(AbiError::RuntimeAbiVersion {
+                found: runtime_abi,
+                expected: RUNTIME_ABI_VERSION,
             });
         }
         if unsafe { (*raw).schema.is_null() } {
             return Err(AbiError::NullSchema);
         }
+        let abi = unsafe { (*raw).abi_version };
+        let schema_abi = unsafe { (*(*raw).schema).abi_version };
+        if abi != schema_abi {
+            return Err(AbiError::AbiVersion {
+                found: abi,
+                expected: schema_abi,
+            });
+        }
         Ok(Tree { raw })
     }
 
-    /// Returns the ABI version from the tree header.
+    /// Returns the `dbt-asdl` runtime ABI version from the tree header.
+    pub fn runtime_abi_version(&self) -> u32 {
+        unsafe { (*self.raw).runtime_abi_version }
+    }
+
+    /// Returns the schema ABI version from the tree header.
     pub fn abi_version(&self) -> u32 {
         unsafe { (*self.raw).abi_version }
     }
@@ -1090,7 +1117,8 @@ pub unsafe fn parse_entry(
 macro_rules! export_sql_dialect {
     ($entry:ident, $name:expr, $version:expr, $parse:expr) => {
         static DIALECT: $crate::FlatDialect = $crate::FlatDialect {
-            abi_version: $crate::ABI_VERSION,
+            runtime_abi_version: $crate::RUNTIME_ABI_VERSION,
+            abi_version: ABI_VERSION,
             schema_hash: SCHEMA_HASH,
             name: $crate::FlatName::from_static($name),
             dialect_version: $crate::FlatName::from_static($version),
@@ -1207,8 +1235,7 @@ fn push_int(v: i64, out: &mut String) {
 pub mod loader {
     use std::path::Path;
 
-    use super::{ABI_VERSION, ABI_VERSION_MIN, AbiError, FlatDialect, Tree, validate_schema};
-
+    use super::{AbiError, FlatDialect, RUNTIME_ABI_VERSION, Tree, validate_schema};
     /// A loaded dialect library: its descriptor plus the parse entry point.
     ///
     /// The library is never unloaded (the load-once policy), so the descriptor
@@ -1256,7 +1283,11 @@ pub mod loader {
         /// `path` must name a trusted dialect library: loading runs its
         /// initializers and calls its entry point, and the handshake checks
         /// version compatibility, not malicious intent.
-        pub unsafe fn load(path: &Path, name: &str) -> Result<Dialect, LoadError> {
+        pub unsafe fn load(
+            path: &Path,
+            name: &str,
+            abi_version: u32,
+        ) -> Result<Dialect, LoadError> {
             let lib = unsafe { libloading::Library::new(path) }
                 .map_err(|e| LoadError::Open(e.to_string()))?;
             let symbol = format!("sql_dialect_{name}");
@@ -1269,17 +1300,23 @@ pub mod loader {
                 return Err(LoadError::BadSchema("null descriptor".to_string()));
             }
             let descriptor = unsafe { &*raw };
-            if !(ABI_VERSION_MIN..=ABI_VERSION).contains(&descriptor.abi_version) {
+            if descriptor.runtime_abi_version != RUNTIME_ABI_VERSION {
+                return Err(LoadError::Abi(AbiError::RuntimeAbiVersion {
+                    found: descriptor.runtime_abi_version,
+                    expected: RUNTIME_ABI_VERSION,
+                }));
+            }
+            if descriptor.abi_version != abi_version {
                 return Err(LoadError::Abi(AbiError::AbiVersion {
                     found: descriptor.abi_version,
-                    min: ABI_VERSION_MIN,
-                    max: ABI_VERSION,
+                    expected: abi_version,
                 }));
             }
             if descriptor.schema.is_null() {
                 return Err(LoadError::Abi(AbiError::NullSchema));
             }
-            unsafe { validate_schema(&*descriptor.schema) }.map_err(LoadError::BadSchema)?;
+            unsafe { validate_schema(&*descriptor.schema, abi_version) }
+                .map_err(LoadError::BadSchema)?;
             std::mem::forget(lib);
             Ok(Dialect { descriptor })
         }
@@ -1322,8 +1359,10 @@ pub mod loader {
             if raw.is_null() {
                 return Err(String::from_utf8_lossy(&err_buf[..err_len]).into_owned());
             }
-            let tree = unsafe { Tree::from_raw(raw) };
-            Ok(tree.expect("the library passed the load-time handshake"))
+            let tree =
+                unsafe { Tree::from_raw(raw) }.expect("the library passed the load-time handshake");
+            assert_eq!(tree.abi_version(), self.descriptor.abi_version);
+            Ok(tree)
         }
     }
 }

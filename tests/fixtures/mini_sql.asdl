@@ -1,5 +1,5 @@
 -- Miniature SQL ASDL specification for testing
-module MiniSql {
+module MiniSql version 1 {
   code_location = (int? lineno, int? col_offset, long? index)
   span = (code_location start, code_location end)
 

@@ -56,6 +56,7 @@ mod tests {
     fn parses_and_checks_mini_asdl() {
         let mod_node = parse_str(MINI_SQL_ASDL).expect("mini.asdl parses");
         assert_eq!(mod_node.name, "MiniSql");
+        assert_eq!(mod_node.version, 1);
         assert_eq!(mod_node.dfns.len(), 8);
         assert_eq!(mod_node.dfns[3].annotations, vec!["stable"]);
         assert_eq!(mod_node.dfns[5].annotations, vec!["stable"]);
@@ -87,6 +88,16 @@ mod tests {
         let dup = "module M { @stable @stable foo = Bar }";
         let err = parse_str(dup).unwrap_err();
         assert_eq!(err.to_string(), "Syntax error on line 1: Duplicate annotation @stable");
+        assert_eq!(m.version, 1);
+
+        let v2 = parse_str("module M version 2 { foo = Bar }").unwrap();
+        assert_eq!(v2.version, 2);
+
+        let zero_ver = parse_str("module M version 0 { foo = Bar }").unwrap_err();
+        assert_eq!(zero_ver.to_string(), "Syntax error on line 1: Module version must be >= 1");
+
+        let bad_ver = parse_str("module M version two { foo = Bar }").unwrap_err();
+        assert_eq!(bad_ver.to_string(), "Syntax error on line 1: Unmatched Int (found TypeId)");
     }
 
     #[test]

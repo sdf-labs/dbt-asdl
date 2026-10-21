@@ -670,6 +670,7 @@ fn emit_builder(
     }
     emit!(w, "        let sections = Box::into_raw(sections.into_boxed_slice());");
     emit!(w, "        let tree = Box::new(FlatTree {{");
+    emit!(w, "            runtime_abi_version: RUNTIME_ABI_VERSION,");
     emit!(w, "            abi_version: ABI_VERSION,");
     emit!(w, "            schema_hash: SCHEMA_HASH,");
     emit!(w, "            release,");
@@ -910,6 +911,7 @@ fn emit_schema(
     emit!(w, "/// The schema of the sql.asdl this build was generated from.");
     emit!(w, "#[cfg(feature = \"builder\")]");
     emit!(w, "pub static SCHEMA: FlatSchema = FlatSchema {{");
+    emit!(w, "    runtime_abi_version: RUNTIME_ABI_VERSION,");
     emit!(w, "    abi_version: ABI_VERSION,");
     emit!(w, "    schema_hash: SCHEMA_HASH,");
     emit!(w, "    types: TYPES.as_ptr(),");
@@ -1432,7 +1434,10 @@ pub(crate) fn generate_flat_from_module(
     emit!(flat, "");
     emit!(flat, "use dbt_asdl::*;");
     emit!(flat, "");
-    emit!(flat, "/// FNV-1a/64 of the sql.asdl bytes this build was generated from.");
+    emit!(flat, "/// ABI version of the `@stable` region from the asdl specification.");
+    emit!(flat, "pub const ABI_VERSION: u32 = {};", mod_node.version);
+    emit!(flat, "");
+    emit!(flat, "/// FNV-1a/64 of the asdl source bytes this build was generated from.");
     emit!(flat, "/// Library-side: the host reads the hash from the descriptor.");
     emit!(flat, "#[cfg(feature = \"builder\")]");
     emit!(flat, "pub const SCHEMA_HASH: u64 = 0x{schema_hash:016x};");

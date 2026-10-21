@@ -313,3 +313,101 @@ fn parse(src: &str) -> Result<*mut FlatTree, String> {
 }
 
 dbt_asdl::export_sql_dialect!(sql_dialect_mini, "mini", "0.1.0", parse);
+
+mod legacy_dialect {
+    use dbt_asdl::{FlatTree, OptBool, OptByte, OptInt, OptLong};
+
+    mod gen_flat {
+        include!(concat!(env!("OUT_DIR"), "/legacy/gen_flat.rs"));
+    }
+    use gen_flat::*;
+
+    fn flat_span(b: &mut TreeBuilder, start: i64, end: i64) -> SpanRef {
+        let s = b.push_code_location(CodeLocation {
+            lineno: OptInt::from(Some(1)),
+            col_offset: OptInt::from(Some(start as i32)),
+            index: OptLong::from(Some(start)),
+        });
+        let e = b.push_code_location(CodeLocation {
+            lineno: OptInt::from(Some(1)),
+            col_offset: OptInt::from(Some(end as i32)),
+            index: OptLong::from(Some(end)),
+        });
+        b.push_span(Span { start: s, end: e })
+    }
+
+    pub fn parse(src: &str) -> Result<*mut FlatTree, String> {
+        if src.trim().is_empty() {
+            return Err("empty input".to_string());
+        }
+        let mut b = TreeBuilder::new();
+        let sp = flat_span(&mut b, 0, 20);
+
+        let p_col = b.push_str("col");
+        let parts = b.push_identifier_seq(&[p_col]);
+        let ident = b.push_expr_identifier(expr::Identifier { span: sp, parts });
+        let paren = b.push_expr_paren(expr::Paren {
+            span: sp,
+            inner: ident,
+        });
+
+        let bool_lit = b.push_literal_boolean(literal::Boolean { span: sp, val: 1 });
+        let bool_expr = b.push_expr_literal(expr::Literal {
+            span: sp,
+            value: bool_lit,
+        });
+
+        let wt = b.push_when_then(WhenThen {
+            when: paren,
+            then: bool_expr,
+            op: super::ast::BinOp::Eq as u8,
+        });
+        let cases = b.push_when_then_seq(&[wt]);
+        let case_expr = b.push_expr_case(expr::Case {
+            span: sp,
+            operand: ExprRef::NONE,
+            cases,
+            r#else: ExprRef::NONE,
+        });
+
+        let int_ty = b.push_data_type_int(data_type::Int {
+            span: sp,
+            nullable: 1,
+            unsigned: OptBool::from(Some(true)),
+            width: OptByte::from(Some(32)),
+        });
+        let hint = b.push_str("v1-hint");
+        let cast_expr = b.push_expr_cast(expr::Cast {
+            span: sp,
+            e: case_expr,
+            to: int_ty,
+            legacy_hint: hint,
+        });
+
+        let exprs = b.push_expr_seq(&[cast_expr]);
+        let spans = b.push_span_seq(&[sp]);
+        let root = b.push_file(File { exprs, spans });
+        Ok(b.finish(root))
+    }
+
+    dbt_asdl::export_sql_dialect!(sql_dialect_legacy, "legacy", "0.1.0", parse);
+}
+
+mod v2_dialect {
+    use dbt_asdl::FlatTree;
+
+    mod gen_flat {
+        include!(concat!(env!("OUT_DIR"), "/v2/gen_flat.rs"));
+    }
+    use gen_flat::*;
+
+    pub fn parse(_src: &str) -> Result<*mut FlatTree, String> {
+        let mut b = TreeBuilder::new();
+        let exprs = b.push_expr_seq(&[]);
+        let spans = b.push_span_seq(&[]);
+        let root = b.push_file(File { exprs, spans });
+        Ok(b.finish(root))
+    }
+
+    dbt_asdl::export_sql_dialect!(sql_dialect_v2, "v2", "0.2.0", parse);
+}
