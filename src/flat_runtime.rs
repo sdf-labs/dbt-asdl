@@ -8,11 +8,15 @@ use crate::sexpr::write_escaped;
 /// schema-specific `abi_version` is read.
 pub const RUNTIME_ABI_VERSION: u32 = 1;
 
-/// The None sentinel for optional node references and optional string
+/// The `None` sentinel for optional node references and optional string
 /// offsets.
 pub const NONE_U32: u32 = u32::MAX;
-/// The None sentinel for optional simple-sum values.
+/// The `None` sentinel for [`OptBool`] and optional simple-sum values.
 pub const NONE_U8: u8 = u8::MAX;
+/// The `None` sentinel for [`OptInt`].
+pub const NONE_I32: i32 = i32::MIN;
+/// The `None` sentinel for [`OptLong`].
+pub const NONE_I64: i64 = i64::MIN;
 
 /// By convention, section 0 of every tree is the UTF-8 string blob.
 pub const SECTION_STRINGS: u32 = 0;
@@ -56,65 +60,115 @@ pub struct FlatSeq {
     pub len: u32,
 }
 
-/// Optional boolean value in the flat C ABI layout.
-#[repr(C)]
+/// An optional boolean value in the flat C ABI layout.
+#[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OptBool {
-    /// Non-zero when a value is present, or `0` for `None`.
-    pub is_some: u32,
-    /// Boolean value (`0` for `false`, non-zero for `true`).
+    /// The encoded boolean value (`0` for `false`, `1` for `true`, or [`NONE_U8`] for `None`).
     pub value: u8,
 }
 
-/// Optional byte (`u8`) value in the flat C ABI layout.
+impl OptBool {
+    /// The `None` sentinel for an optional boolean field.
+    pub const NONE: Self = OptBool { value: NONE_U8 };
+
+    /// Returns `true` if this value holds the `None` sentinel.
+    pub fn is_none(self) -> bool {
+        self.value == NONE_U8
+    }
+
+    /// Returns `Some(bool)` if a value is present, or `None` if this value is `None`.
+    pub fn get(self) -> Option<bool> {
+        (self.value != NONE_U8).then_some(self.value != 0)
+    }
+}
+
+impl From<Option<bool>> for OptBool {
+    fn from(v: Option<bool>) -> Self {
+        match v {
+            Some(value) => OptBool { value: value as u8 },
+            None => OptBool::NONE,
+        }
+    }
+}
+
+/// An optional byte (`u8`) value in the flat C ABI layout.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OptByte {
-    /// Non-zero when a value is present, or `0` for `None`.
-    pub is_some: u32,
-    /// Byte payload when `is_some != 0`.
+    /// A non-zero value indicates that a byte value is present. Zero indicates `None`.
+    pub is_some: u8,
+    /// The byte payload when `is_some` is not zero.
     pub value: u8,
 }
 
-/// Optional 32-bit signed integer (`i32`) value in the flat C ABI layout.
-#[repr(C)]
+impl OptByte {
+    /// The `None` value for an optional byte field.
+    pub const NONE: Self = OptByte {
+        is_some: 0,
+        value: 0,
+    };
+
+    /// Returns `true` if this value is `None`.
+    pub fn is_none(self) -> bool {
+        self.is_some == 0
+    }
+
+    /// Returns `Some(value)` if `is_some` is not zero, or `None` if `is_some` is zero.
+    pub fn get(self) -> Option<u8> {
+        (self.is_some != 0).then_some(self.value)
+    }
+}
+
+impl From<Option<u8>> for OptByte {
+    fn from(v: Option<u8>) -> Self {
+        match v {
+            Some(value) => OptByte { is_some: 1, value },
+            None => OptByte::NONE,
+        }
+    }
+}
+
+/// An optional 32-bit signed integer (`i32`) value in the flat C ABI layout.
+#[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OptInt {
-    /// Non-zero when a value is present, or `0` for `None`.
-    pub is_some: u32,
-    /// Integer payload when `is_some != 0`.
+    /// The integer payload, or [`NONE_I32`] for `None`.
     pub value: i32,
 }
 
-/// Optional 64-bit signed integer (`i64`) value in the flat C ABI layout.
-#[repr(C)]
+/// An optional 64-bit signed integer (`i64`) value in the flat C ABI layout.
+#[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OptLong {
-    /// Non-zero when a value is present, or `0` for `None`.
-    pub is_some: u32,
-    /// Long integer payload when `is_some != 0`.
+    /// The 64-bit integer payload, or [`NONE_I64`] for `None`.
     pub value: i64,
 }
 
 macro_rules! opt_scalar {
-    ($t:ident, $v:ty) => {
+    ($t:ident, $v:ty, $none:ident) => {
         impl $t {
-            /// The `None` value for this optional scalar type.
-            pub const NONE: Self = $t {
-                is_some: 0,
-                value: 0,
-            };
+            /// The `None` sentinel for this optional scalar type.
+            pub const NONE: Self = $t { value: $none };
 
-            /// Returns `Some(value)` if `is_some != 0`, or `None` otherwise.
+            /// Returns `true` if this value holds the `None` sentinel.
+            pub fn is_none(self) -> bool {
+                self.value == $none
+            }
+
+            /// Returns `Some(value)` if a value is present, or `None` if this value is `None`.
             pub fn get(self) -> Option<$v> {
-                (self.is_some != 0).then_some(self.value)
+                (self.value != $none).then_some(self.value)
             }
         }
 
         impl From<Option<$v>> for $t {
             fn from(v: Option<$v>) -> Self {
                 match v {
-                    Some(value) => $t { is_some: 1, value },
+                    Some(value) => {
+                        debug_assert_ne!(value, $none, "value collides with NONE sentinel");
+                        $t { value }
+                    }
                     None => $t::NONE,
                 }
             }
@@ -122,34 +176,8 @@ macro_rules! opt_scalar {
     };
 }
 
-opt_scalar!(OptByte, u8);
-opt_scalar!(OptInt, i32);
-opt_scalar!(OptLong, i64);
-
-impl OptBool {
-    /// The `None` value for an optional boolean field.
-    pub const NONE: Self = OptBool {
-        is_some: 0,
-        value: 0,
-    };
-
-    /// Returns `Some(bool)` if `is_some != 0`, or `None` otherwise.
-    pub fn get(self) -> Option<bool> {
-        (self.is_some != 0).then_some(self.value != 0)
-    }
-}
-
-impl From<Option<bool>> for OptBool {
-    fn from(v: Option<bool>) -> Self {
-        match v {
-            Some(value) => OptBool {
-                is_some: 1,
-                value: value as u8,
-            },
-            None => OptBool::NONE,
-        }
-    }
-}
+opt_scalar!(OptInt, i32, NONE_I32);
+opt_scalar!(OptLong, i64, NONE_I64);
 
 /// One node of a compound sum: the constructor tag (index into the sum's
 /// constructors, in `sql.asdl` declaration order) and the index of the
@@ -202,9 +230,7 @@ impl FlatName {
     }
 }
 
-/// The field encodings: how one field's bytes at `record + offset` read.
-/// Stored as `u8` in the tables and converted through [`FlatEnc::from_u8`]
-/// so an unrecognized value is data, not UB.
+/// Encoding descriptor for the built-in types.
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FlatEnc {
@@ -1369,3 +1395,59 @@ pub mod loader {
 
 #[cfg(feature = "loader")]
 pub use loader::{Dialect, LoadError};
+
+#[cfg(test)]
+mod tests {
+    use std::mem::{align_of, size_of};
+
+    use super::{NONE_I32, NONE_I64, NONE_U8, OptBool, OptByte, OptInt, OptLong};
+
+    #[test]
+    fn opt_scalar_layouts_and_roundtrips() {
+        assert_eq!(size_of::<OptBool>(), 1);
+        assert_eq!(align_of::<OptBool>(), 1);
+        assert_eq!(OptBool::NONE.value, NONE_U8);
+        assert!(OptBool::NONE.is_none());
+        assert_eq!(OptBool::NONE.get(), None);
+        assert_eq!(OptBool::from(None), OptBool::NONE);
+        assert_eq!(OptBool::from(Some(false)).get(), Some(false));
+        assert_eq!(OptBool::from(Some(true)).get(), Some(true));
+        assert!(!OptBool::from(Some(false)).is_none());
+        assert!(!OptBool::from(Some(true)).is_none());
+
+        assert_eq!(size_of::<OptByte>(), 2);
+        assert_eq!(align_of::<OptByte>(), 1);
+        assert!(OptByte::NONE.is_none());
+        assert_eq!(OptByte::NONE.get(), None);
+        assert_eq!(OptByte::from(None), OptByte::NONE);
+        for b in [0u8, 1, 64, 127, 254, u8::MAX] {
+            let opt = OptByte::from(Some(b));
+            assert!(!opt.is_none());
+            assert_eq!(opt.get(), Some(b));
+        }
+
+        assert_eq!(size_of::<OptInt>(), 4);
+        assert_eq!(align_of::<OptInt>(), 4);
+        assert_eq!(OptInt::NONE.value, NONE_I32);
+        assert!(OptInt::NONE.is_none());
+        assert_eq!(OptInt::NONE.get(), None);
+        assert_eq!(OptInt::from(None), OptInt::NONE);
+        for v in [i32::MIN + 1, -1, 0, 1, 42, i32::MAX] {
+            let opt = OptInt::from(Some(v));
+            assert!(!opt.is_none());
+            assert_eq!(opt.get(), Some(v));
+        }
+
+        assert_eq!(size_of::<OptLong>(), 8);
+        assert_eq!(align_of::<OptLong>(), align_of::<i64>());
+        assert_eq!(OptLong::NONE.value, NONE_I64);
+        assert!(OptLong::NONE.is_none());
+        assert_eq!(OptLong::NONE.get(), None);
+        assert_eq!(OptLong::from(None), OptLong::NONE);
+        for v in [i64::MIN + 1, -1, 0, 1, 42, i64::MAX] {
+            let opt = OptLong::from(Some(v));
+            assert!(!opt.is_none());
+            assert_eq!(opt.get(), Some(v));
+        }
+    }
+}
