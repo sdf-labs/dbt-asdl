@@ -265,17 +265,12 @@ impl Layout {
                 )
             };
 
-            if matches!(kind, InfoKind::Product | InfoKind::CompoundSum) {
+            if kind == InfoKind::Product {
                 let sec_idx = sections.len();
                 if let Some(info) = infos.get_mut(&d.name) {
                     info.node_section = Some(sec_idx);
                 }
-                let elem = if kind == InfoKind::Product {
-                    rust
-                } else {
-                    "FlatNode".to_string()
-                };
-                sections.push((format!("{name}_nodes"), elem));
+                sections.push((format!("{name}_nodes"), rust));
             }
 
             if kind == InfoKind::CompoundSum {
@@ -435,9 +430,9 @@ fn emit_tag_enums(
         if info.kind != InfoKind::CompoundSum {
             continue;
         }
-        if info.constructors.len() > 0xFFFF {
+        if info.constructors.len() > 0x100 {
             return Err(CodegenError(format!(
-                "{}: too many constructors for a u16 tag",
+                "{}: too many constructors for an 8-bit packed tag",
                 info.name
             )));
         }
@@ -608,13 +603,12 @@ fn emit_builder(
                     );
                     emit!(w, "        let payload = self.{}_{uname}.len() as u32;", info.name);
                     emit!(w, "        self.{}_{uname}.push(r);", info.name);
-                    emit!(w, "        let i = self.{}_nodes.len() as u32;", info.name);
-                    emit!(w, "        self.{}_nodes.push(FlatNode {{", info.name);
-                    emit!(w, "            tag: {}Tag::{cname} as u16,", info.rust);
-                    emit!(w, "            _pad: 0,");
-                    emit!(w, "            payload,");
-                    emit!(w, "        }});");
-                    emit!(w, "        {}Ref(i)", info.rust);
+                    emit!(
+                        w,
+                        "        {}Ref(pack_sum_ref({}Tag::{cname} as u16, payload))",
+                        info.rust,
+                        info.rust
+                    );
                     emit!(w, "    }}");
                 } else {
                     emit!(w, "    /// Push a bare `{cname}` node of `{}`.", info.name);
@@ -624,13 +618,12 @@ fn emit_builder(
                         info.name,
                         info.rust
                     );
-                    emit!(w, "        let i = self.{}_nodes.len() as u32;", info.name);
-                    emit!(w, "        self.{}_nodes.push(FlatNode {{", info.name);
-                    emit!(w, "            tag: {}Tag::{cname} as u16,", info.rust);
-                    emit!(w, "            _pad: 0,");
-                    emit!(w, "            payload: NONE_U32,");
-                    emit!(w, "        }});");
-                    emit!(w, "        {}Ref(i)", info.rust);
+                    emit!(
+                        w,
+                        "        {}Ref(pack_sum_ref({}Tag::{cname} as u16, 0))",
+                        info.rust,
+                        info.rust
+                    );
                     emit!(w, "    }}");
                 }
             }
