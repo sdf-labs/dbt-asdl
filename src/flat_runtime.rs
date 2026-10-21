@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use crate::sexpr::write_escaped;
 
 /// Layout version of the `dbt-asdl` boundary descriptor and tree-record structs
-/// (`FlatDialect`, `FlatSchema`, `FlatTree`, `FlatSection`, `FlatNode`, `FlatStr`,
+/// (`FlatDialect`, `FlatSchema`, `FlatTree`, `FlatSection`, `FlatStr`,
 /// `FlatSeq`, and `Opt*`). Checked at load time before any schema table or
 /// schema-specific `abi_version` is read.
 pub const RUNTIME_ABI_VERSION: u32 = 1;
@@ -179,19 +179,25 @@ macro_rules! opt_scalar {
 opt_scalar!(OptInt, i32, NONE_I32);
 opt_scalar!(OptLong, i64, NONE_I64);
 
-/// One node of a compound sum: the constructor tag (index into the sum's
-/// constructors, in `sql.asdl` declaration order) and the index of the
-/// payload record in that constructor's section (`NONE_U32` for a bare
-/// constructor of an attribute-less sum).
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct FlatNode {
-    /// Constructor index within the sum, in ASDL declaration order.
-    pub tag: u16,
-    /// Reserved alignment padding (zero).
-    pub _pad: u16,
-    /// Index of the payload record in the constructor section (`NONE_U32` when bare).
-    pub payload: u32,
+/// The number of low bits that store the payload index in a packed sum reference.
+pub const SUM_PAYLOAD_BITS: u32 = 24;
+/// The bitmask for the payload index in a packed sum reference.
+pub const SUM_PAYLOAD_MASK: u32 = (1 << SUM_PAYLOAD_BITS) - 1;
+
+/// Packs a constructor tag and payload index into one `u32` sum reference.
+pub const fn pack_sum_ref(tag: u16, payload: u32) -> u32 {
+    debug_assert!(tag <= 0xFF, "sum constructor tag exceeds 8 bits");
+    debug_assert!(payload <= SUM_PAYLOAD_MASK, "sum payload index exceeds 24 bits");
+    let packed = ((tag as u32) << SUM_PAYLOAD_BITS) | (payload & SUM_PAYLOAD_MASK);
+    debug_assert!(packed != NONE_U32, "packed sum reference collides with NONE_U32");
+    packed
+}
+
+/// Unpacks a `u32` sum reference into its `(tag, payload)` pair.
+pub const fn unpack_sum_ref(index: u32) -> (u16, u32) {
+    let tag = (index >> SUM_PAYLOAD_BITS) as u16;
+    let payload = index & SUM_PAYLOAD_MASK;
+    (tag, payload)
 }
 
 // ---------------------------------------------------------------------------
@@ -363,8 +369,7 @@ pub struct FlatTypeInfo {
     /// sequence element (`Node` for products and compound sums, `Str` for
     /// `identifier`/`string`, the scalar encodings for the rest).
     pub enc: u8,
-    /// The section holding this type's node records, or -1 for builtins and
-    /// simple sums (never nodes).
+    /// The section that holds this product type's records, or -1 for non-product types.
     pub node_section: i32,
     /// The section holding this type's sequence pool, or -1 if the type
     /// never appears as `T*`.
@@ -781,13 +786,11 @@ impl Tree {
     /// The node's constructor tag within its sum, for typed projections.
     pub fn sum_tag(&self, ty: u16, index: u32) -> Option<u16> {
         let t = self.type_info(ty);
-        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) || t.node_section < 0 {
+        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) {
             return None;
         }
-        let (base, stride) = self.section(t.node_section);
-        let node: FlatNode =
-            unsafe { ((base + index as usize * stride) as *const FlatNode).read() };
-        Some(node.tag)
+        let (tag, _) = unpack_sum_ref(index);
+        Some(tag)
     }
 
     /// (record pointer, section stride) of a product node, for typed
@@ -805,10 +808,11 @@ impl Tree {
     /// tag is `tag`, for typed projections.
     pub fn payload_ptr(&self, ty: u16, index: u32, tag: u16) -> Option<(*const u8, usize)> {
         let t = self.type_info(ty);
-        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) || t.node_section < 0 {
+        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) {
             return None;
         }
-        if self.sum_tag(ty, index)? != tag {
+        let (node_tag, payload) = unpack_sum_ref(index);
+        if node_tag != tag {
             return None;
         }
         let ctor = &self.ctors()[t.ctor_off as usize + tag as usize];
@@ -816,10 +820,7 @@ impl Tree {
             return None;
         }
         let (pbase, pstride) = self.section(ctor.payload_section);
-        let (base, stride) = self.section(t.node_section);
-        let node: FlatNode =
-            unsafe { ((base + index as usize * stride) as *const FlatNode).read() };
-        Some(((pbase + node.payload as usize * pstride) as *const u8, pstride))
+        Some(((pbase + payload as usize * pstride) as *const u8, pstride))
     }
 
     /// The record base pointer of a node: `(record, fields, ctor)` — the
@@ -830,22 +831,21 @@ impl Tree {
         index: u32,
     ) -> (*const u8, &'static [FlatFieldInfo], Option<&FlatCtorInfo>) {
         let t = self.type_info(ty);
-        let (base, stride) = self.section(t.node_section);
         match FlatTypeKind::from_u8(t.kind) {
             Some(FlatTypeKind::Product) => {
+                let (base, stride) = self.section(t.node_section);
                 let fields = unsafe { table(t.fields, t.field_count) };
                 ((base + index as usize * stride) as *const u8, fields, None)
             }
             _ => {
-                let node: FlatNode =
-                    unsafe { ((base + index as usize * stride) as *const FlatNode).read() };
-                let ctor = &self.ctors()[t.ctor_off as usize + node.tag as usize];
+                let (tag, payload) = unpack_sum_ref(index);
+                let ctor = &self.ctors()[t.ctor_off as usize + tag as usize];
                 if ctor.payload_section < 0 {
                     return (std::ptr::null(), &[], Some(ctor));
                 }
                 let (pbase, pstride) = self.section(ctor.payload_section);
                 let fields = unsafe { table(ctor.fields, ctor.field_count) };
-                ((pbase + node.payload as usize * pstride) as *const u8, fields, Some(ctor))
+                ((pbase + payload as usize * pstride) as *const u8, fields, Some(ctor))
             }
         }
     }
@@ -975,10 +975,8 @@ impl<'t> Node<'t> {
         if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) {
             return None;
         }
-        let (base, stride) = self.tree.section(t.node_section);
-        let node: FlatNode =
-            unsafe { ((base + self.index as usize * stride) as *const FlatNode).read() };
-        Some(t.ctor_off + node.tag as u32)
+        let (tag, _) = unpack_sum_ref(self.index);
+        Some(t.ctor_off + tag as u32)
     }
 
     /// The node's fields, as raw descriptors (name + encoding + offset).
@@ -1400,7 +1398,10 @@ pub use loader::{Dialect, LoadError};
 mod tests {
     use std::mem::{align_of, size_of};
 
-    use super::{NONE_I32, NONE_I64, NONE_U8, OptBool, OptByte, OptInt, OptLong};
+    use super::{
+        NONE_I32, NONE_I64, NONE_U8, OptBool, OptByte, OptInt, OptLong, SUM_PAYLOAD_MASK,
+        pack_sum_ref, unpack_sum_ref,
+    };
 
     #[test]
     fn opt_scalar_layouts_and_roundtrips() {
@@ -1448,6 +1449,22 @@ mod tests {
             let opt = OptLong::from(Some(v));
             assert!(!opt.is_none());
             assert_eq!(opt.get(), Some(v));
+        }
+    }
+
+    #[test]
+    fn sum_ref_pack_and_unpack() {
+        for (tag, payload) in [
+            (0u16, 0u32),
+            (0, 1),
+            (1, 42),
+            (7, SUM_PAYLOAD_MASK),
+            (254, SUM_PAYLOAD_MASK),
+            (255, 0),
+            (255, SUM_PAYLOAD_MASK - 1),
+        ] {
+            let packed = pack_sum_ref(tag, payload);
+            assert_eq!(unpack_sum_ref(packed), (tag, payload));
         }
     }
 }

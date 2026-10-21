@@ -358,15 +358,12 @@ pub struct TreeBuilder {
     strings: Vec<u8>,
     code_location_nodes: Vec<CodeLocation>,
     span_nodes: Vec<Span>,
-    data_type_nodes: Vec<FlatNode>,
     data_type_int: Vec<data_type::Int>,
     data_type_bool: Vec<data_type::Bool>,
-    literal_nodes: Vec<FlatNode>,
     literal_number: Vec<literal::Number>,
     literal_string: Vec<literal::String>,
     literal_null: Vec<literal::Null>,
     when_then_nodes: Vec<WhenThen>,
-    expr_nodes: Vec<FlatNode>,
     expr_identifier: Vec<expr::Identifier>,
     expr_literal: Vec<expr::Literal>,
     expr_binary_op: Vec<expr::BinaryOp>,
@@ -388,15 +385,12 @@ impl TreeBuilder {
             strings: Vec::new(),
             code_location_nodes: Vec::new(),
             span_nodes: Vec::new(),
-            data_type_nodes: Vec::new(),
             data_type_int: Vec::new(),
             data_type_bool: Vec::new(),
-            literal_nodes: Vec::new(),
             literal_number: Vec::new(),
             literal_string: Vec::new(),
             literal_null: Vec::new(),
             when_then_nodes: Vec::new(),
-            expr_nodes: Vec::new(),
             expr_identifier: Vec::new(),
             expr_literal: Vec::new(),
             expr_binary_op: Vec::new(),
@@ -436,65 +430,35 @@ impl TreeBuilder {
     pub fn push_data_type_int(&mut self, r: data_type::Int) -> DataTypeRef {
         let payload = self.data_type_int.len() as u32;
         self.data_type_int.push(r);
-        let i = self.data_type_nodes.len() as u32;
-        self.data_type_nodes.push(FlatNode {
-            tag: DataTypeTag::Int as u16,
-            _pad: 0,
-            payload,
-        });
-        DataTypeRef(i)
+        DataTypeRef(pack_sum_ref(DataTypeTag::Int as u16, payload))
     }
 
     /// Push a `Bool` node of `data_type`.
     pub fn push_data_type_bool(&mut self, r: data_type::Bool) -> DataTypeRef {
         let payload = self.data_type_bool.len() as u32;
         self.data_type_bool.push(r);
-        let i = self.data_type_nodes.len() as u32;
-        self.data_type_nodes.push(FlatNode {
-            tag: DataTypeTag::Bool as u16,
-            _pad: 0,
-            payload,
-        });
-        DataTypeRef(i)
+        DataTypeRef(pack_sum_ref(DataTypeTag::Bool as u16, payload))
     }
 
     /// Push a `Number` node of `literal`.
     pub fn push_literal_number(&mut self, r: literal::Number) -> LiteralRef {
         let payload = self.literal_number.len() as u32;
         self.literal_number.push(r);
-        let i = self.literal_nodes.len() as u32;
-        self.literal_nodes.push(FlatNode {
-            tag: LiteralTag::Number as u16,
-            _pad: 0,
-            payload,
-        });
-        LiteralRef(i)
+        LiteralRef(pack_sum_ref(LiteralTag::Number as u16, payload))
     }
 
     /// Push a `String` node of `literal`.
     pub fn push_literal_string(&mut self, r: literal::String) -> LiteralRef {
         let payload = self.literal_string.len() as u32;
         self.literal_string.push(r);
-        let i = self.literal_nodes.len() as u32;
-        self.literal_nodes.push(FlatNode {
-            tag: LiteralTag::String as u16,
-            _pad: 0,
-            payload,
-        });
-        LiteralRef(i)
+        LiteralRef(pack_sum_ref(LiteralTag::String as u16, payload))
     }
 
     /// Push a `Null` node of `literal`.
     pub fn push_literal_null(&mut self, r: literal::Null) -> LiteralRef {
         let payload = self.literal_null.len() as u32;
         self.literal_null.push(r);
-        let i = self.literal_nodes.len() as u32;
-        self.literal_nodes.push(FlatNode {
-            tag: LiteralTag::Null as u16,
-            _pad: 0,
-            payload,
-        });
-        LiteralRef(i)
+        LiteralRef(pack_sum_ref(LiteralTag::Null as u16, payload))
     }
 
     /// Push a `when_then` node.
@@ -508,65 +472,35 @@ impl TreeBuilder {
     pub fn push_expr_identifier(&mut self, r: expr::Identifier) -> ExprRef {
         let payload = self.expr_identifier.len() as u32;
         self.expr_identifier.push(r);
-        let i = self.expr_nodes.len() as u32;
-        self.expr_nodes.push(FlatNode {
-            tag: ExprTag::Identifier as u16,
-            _pad: 0,
-            payload,
-        });
-        ExprRef(i)
+        ExprRef(pack_sum_ref(ExprTag::Identifier as u16, payload))
     }
 
     /// Push a `Literal` node of `expr`.
     pub fn push_expr_literal(&mut self, r: expr::Literal) -> ExprRef {
         let payload = self.expr_literal.len() as u32;
         self.expr_literal.push(r);
-        let i = self.expr_nodes.len() as u32;
-        self.expr_nodes.push(FlatNode {
-            tag: ExprTag::Literal as u16,
-            _pad: 0,
-            payload,
-        });
-        ExprRef(i)
+        ExprRef(pack_sum_ref(ExprTag::Literal as u16, payload))
     }
 
     /// Push a `BinaryOp` node of `expr`.
     pub fn push_expr_binary_op(&mut self, r: expr::BinaryOp) -> ExprRef {
         let payload = self.expr_binary_op.len() as u32;
         self.expr_binary_op.push(r);
-        let i = self.expr_nodes.len() as u32;
-        self.expr_nodes.push(FlatNode {
-            tag: ExprTag::BinaryOp as u16,
-            _pad: 0,
-            payload,
-        });
-        ExprRef(i)
+        ExprRef(pack_sum_ref(ExprTag::BinaryOp as u16, payload))
     }
 
     /// Push a `Case` node of `expr`.
     pub fn push_expr_case(&mut self, r: expr::Case) -> ExprRef {
         let payload = self.expr_case.len() as u32;
         self.expr_case.push(r);
-        let i = self.expr_nodes.len() as u32;
-        self.expr_nodes.push(FlatNode {
-            tag: ExprTag::Case as u16,
-            _pad: 0,
-            payload,
-        });
-        ExprRef(i)
+        ExprRef(pack_sum_ref(ExprTag::Case as u16, payload))
     }
 
     /// Push a `Cast` node of `expr`.
     pub fn push_expr_cast(&mut self, r: expr::Cast) -> ExprRef {
         let payload = self.expr_cast.len() as u32;
         self.expr_cast.push(r);
-        let i = self.expr_nodes.len() as u32;
-        self.expr_nodes.push(FlatNode {
-            tag: ExprTag::Cast as u16,
-            _pad: 0,
-            payload,
-        });
-        ExprRef(i)
+        ExprRef(pack_sum_ref(ExprTag::Cast as u16, payload))
     }
 
     /// Push a `file` node.
@@ -631,15 +565,12 @@ impl TreeBuilder {
         sec!(self.strings, u8);
         sec!(self.code_location_nodes, CodeLocation);
         sec!(self.span_nodes, Span);
-        sec!(self.data_type_nodes, FlatNode);
         sec!(self.data_type_int, data_type::Int);
         sec!(self.data_type_bool, data_type::Bool);
-        sec!(self.literal_nodes, FlatNode);
         sec!(self.literal_number, literal::Number);
         sec!(self.literal_string, literal::String);
         sec!(self.literal_null, literal::Null);
         sec!(self.when_then_nodes, WhenThen);
-        sec!(self.expr_nodes, FlatNode);
         sec!(self.expr_identifier, expr::Identifier);
         sec!(self.expr_literal, expr::Literal);
         sec!(self.expr_binary_op, expr::BinaryOp);
@@ -659,7 +590,7 @@ impl TreeBuilder {
             release,
             schema: &SCHEMA,
             sections: sections as *mut FlatSection,
-            section_count: 23,
+            section_count: 20,
             root_index: root.0,
         });
         Box::into_raw(tree)
@@ -704,100 +635,85 @@ unsafe extern "C" fn release(tree: *mut FlatTree) {
                 }
                 3 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut FlatNode, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut data_type::Int, len),
                     ));
                 }
                 4 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut data_type::Int, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut data_type::Bool, len),
                     ));
                 }
                 5 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut data_type::Bool, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut literal::Number, len),
                     ));
                 }
                 6 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut FlatNode, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut literal::String, len),
                     ));
                 }
                 7 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut literal::Number, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut literal::Null, len),
                     ));
                 }
                 8 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut literal::String, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut WhenThen, len),
                     ));
                 }
                 9 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut literal::Null, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut expr::Identifier, len),
                     ));
                 }
                 10 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut WhenThen, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut expr::Literal, len),
                     ));
                 }
                 11 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut FlatNode, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut expr::BinaryOp, len),
                     ));
                 }
                 12 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut expr::Identifier, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut expr::Case, len),
                     ));
                 }
                 13 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut expr::Literal, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut expr::Cast, len),
                     ));
                 }
                 14 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut expr::BinaryOp, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut File, len),
                     ));
                 }
                 15 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut expr::Case, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut FlatStr, len),
                     ));
                 }
                 16 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut expr::Cast, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut FlatStr, len),
                     ));
                 }
                 17 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut File, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut SpanRef, len),
                     ));
                 }
                 18 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut FlatStr, len),
-                    ));
-                }
-                19 => {
-                    drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut FlatStr, len),
-                    ));
-                }
-                20 => {
-                    drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut SpanRef, len),
-                    ));
-                }
-                21 => {
-                    drop(Box::from_raw(
                         std::ptr::slice_from_raw_parts_mut(ptr as *mut WhenThenRef, len),
                     ));
                 }
-                22 => {
+                19 => {
                     drop(Box::from_raw(
                         std::ptr::slice_from_raw_parts_mut(ptr as *mut ExprRef, len),
                     ));
@@ -1247,7 +1163,7 @@ static CTORS: &[FlatCtorInfo] = &[
         name: FlatName::from_static("Int"),
         tag: 0,
         type_index: 9,
-        payload_section: 4,
+        payload_section: 3,
         fields: FIELDS_DATA_TYPE_INT.as_ptr(),
         field_count: FIELDS_DATA_TYPE_INT.len() as u32,
     },
@@ -1255,7 +1171,7 @@ static CTORS: &[FlatCtorInfo] = &[
         name: FlatName::from_static("Bool"),
         tag: 1,
         type_index: 9,
-        payload_section: 5,
+        payload_section: 4,
         fields: FIELDS_DATA_TYPE_BOOL.as_ptr(),
         field_count: FIELDS_DATA_TYPE_BOOL.len() as u32,
     },
@@ -1263,7 +1179,7 @@ static CTORS: &[FlatCtorInfo] = &[
         name: FlatName::from_static("Number"),
         tag: 0,
         type_index: 10,
-        payload_section: 7,
+        payload_section: 5,
         fields: FIELDS_LITERAL_NUMBER.as_ptr(),
         field_count: FIELDS_LITERAL_NUMBER.len() as u32,
     },
@@ -1271,7 +1187,7 @@ static CTORS: &[FlatCtorInfo] = &[
         name: FlatName::from_static("String"),
         tag: 1,
         type_index: 10,
-        payload_section: 8,
+        payload_section: 6,
         fields: FIELDS_LITERAL_STRING.as_ptr(),
         field_count: FIELDS_LITERAL_STRING.len() as u32,
     },
@@ -1279,7 +1195,7 @@ static CTORS: &[FlatCtorInfo] = &[
         name: FlatName::from_static("Null"),
         tag: 2,
         type_index: 10,
-        payload_section: 9,
+        payload_section: 7,
         fields: FIELDS_LITERAL_NULL.as_ptr(),
         field_count: FIELDS_LITERAL_NULL.len() as u32,
     },
@@ -1287,7 +1203,7 @@ static CTORS: &[FlatCtorInfo] = &[
         name: FlatName::from_static("Identifier"),
         tag: 0,
         type_index: 12,
-        payload_section: 12,
+        payload_section: 9,
         fields: FIELDS_EXPR_IDENTIFIER.as_ptr(),
         field_count: FIELDS_EXPR_IDENTIFIER.len() as u32,
     },
@@ -1295,7 +1211,7 @@ static CTORS: &[FlatCtorInfo] = &[
         name: FlatName::from_static("Literal"),
         tag: 1,
         type_index: 12,
-        payload_section: 13,
+        payload_section: 10,
         fields: FIELDS_EXPR_LITERAL.as_ptr(),
         field_count: FIELDS_EXPR_LITERAL.len() as u32,
     },
@@ -1303,7 +1219,7 @@ static CTORS: &[FlatCtorInfo] = &[
         name: FlatName::from_static("BinaryOp"),
         tag: 2,
         type_index: 12,
-        payload_section: 14,
+        payload_section: 11,
         fields: FIELDS_EXPR_BINARYOP.as_ptr(),
         field_count: FIELDS_EXPR_BINARYOP.len() as u32,
     },
@@ -1311,7 +1227,7 @@ static CTORS: &[FlatCtorInfo] = &[
         name: FlatName::from_static("Case"),
         tag: 3,
         type_index: 12,
-        payload_section: 15,
+        payload_section: 12,
         fields: FIELDS_EXPR_CASE.as_ptr(),
         field_count: FIELDS_EXPR_CASE.len() as u32,
     },
@@ -1319,7 +1235,7 @@ static CTORS: &[FlatCtorInfo] = &[
         name: FlatName::from_static("Cast"),
         tag: 4,
         type_index: 12,
-        payload_section: 16,
+        payload_section: 13,
         fields: FIELDS_EXPR_CAST.as_ptr(),
         field_count: FIELDS_EXPR_CAST.len() as u32,
     },
@@ -1332,7 +1248,7 @@ static TYPES: &[FlatTypeInfo] = &[
         kind: FlatTypeKind::Builtin as u8,
         enc: FlatEnc::Str as u8,
         node_section: -1,
-        seq_section: 18,
+        seq_section: 15,
         ctor_off: 0,
         ctor_count: 0,
         fields: std::ptr::null(),
@@ -1343,7 +1259,7 @@ static TYPES: &[FlatTypeInfo] = &[
         kind: FlatTypeKind::Builtin as u8,
         enc: FlatEnc::Str as u8,
         node_section: -1,
-        seq_section: 19,
+        seq_section: 16,
         ctor_off: 0,
         ctor_count: 0,
         fields: std::ptr::null(),
@@ -1409,7 +1325,7 @@ static TYPES: &[FlatTypeInfo] = &[
         kind: FlatTypeKind::Product as u8,
         enc: FlatEnc::Node as u8,
         node_section: 2,
-        seq_section: 20,
+        seq_section: 17,
         ctor_off: 0,
         ctor_count: 0,
         fields: FIELDS_SPAN.as_ptr(),
@@ -1430,7 +1346,7 @@ static TYPES: &[FlatTypeInfo] = &[
         name: FlatName::from_static("data_type"),
         kind: FlatTypeKind::Sum as u8,
         enc: FlatEnc::Node as u8,
-        node_section: 3,
+        node_section: -1,
         seq_section: -1,
         ctor_off: 3,
         ctor_count: 2,
@@ -1441,7 +1357,7 @@ static TYPES: &[FlatTypeInfo] = &[
         name: FlatName::from_static("literal"),
         kind: FlatTypeKind::Sum as u8,
         enc: FlatEnc::Node as u8,
-        node_section: 6,
+        node_section: -1,
         seq_section: -1,
         ctor_off: 5,
         ctor_count: 3,
@@ -1452,8 +1368,8 @@ static TYPES: &[FlatTypeInfo] = &[
         name: FlatName::from_static("when_then"),
         kind: FlatTypeKind::Product as u8,
         enc: FlatEnc::Node as u8,
-        node_section: 10,
-        seq_section: 21,
+        node_section: 8,
+        seq_section: 18,
         ctor_off: 0,
         ctor_count: 0,
         fields: FIELDS_WHENTHEN.as_ptr(),
@@ -1463,8 +1379,8 @@ static TYPES: &[FlatTypeInfo] = &[
         name: FlatName::from_static("expr"),
         kind: FlatTypeKind::Sum as u8,
         enc: FlatEnc::Node as u8,
-        node_section: 11,
-        seq_section: 22,
+        node_section: -1,
+        seq_section: 19,
         ctor_off: 8,
         ctor_count: 5,
         fields: std::ptr::null(),
@@ -1474,7 +1390,7 @@ static TYPES: &[FlatTypeInfo] = &[
         name: FlatName::from_static("file"),
         kind: FlatTypeKind::Product as u8,
         enc: FlatEnc::Node as u8,
-        node_section: 17,
+        node_section: 14,
         seq_section: -1,
         ctor_off: 0,
         ctor_count: 0,
