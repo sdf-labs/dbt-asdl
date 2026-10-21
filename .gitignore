@@ -1,2 +1,26 @@
-/target
 Cargo.lock
+
+/target
+/tests/**/target
+
+/difftest
+/perftest
+
+PLAN-*.md
+
+# Emacs
+*~
+\#*#
+/.#*
+.#*
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+Session.vim
+Sessionx.vim
+.netrwhist
+[._]*.un~
