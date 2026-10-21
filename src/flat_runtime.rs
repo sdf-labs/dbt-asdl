@@ -1,4 +1,6 @@
 use std::fmt::Write as _;
+use std::marker::PhantomData;
+use std::ptr::NonNull;
 
 use crate::sexpr::write_escaped;
 
@@ -696,68 +698,9 @@ fn validate_field_range(
     Ok(())
 }
 
-/// A library-owned flat tree under host management: walks in place, frees
-/// through the header's `release` on drop.
-pub struct Tree {
-    raw: *mut FlatTree,
-}
-
-impl Tree {
-    /// Take ownership of a library-produced tree. `raw` must come from a
-    /// dialect library's `parse` (or from `convert_file`); the tree is freed
-    /// through its own `release`.
-    ///
-    /// The version handshake is the loader's job, done once per library on
-    /// its `FlatDialect` descriptor; typed projections are not gated beyond
-    /// that (strict-only). The checks here are the per-tree invariants that
-    /// keep the handshake sound afterwards: a host may hold trees from
-    /// several libraries built with different versions, and a `*mut
-    /// FlatTree` does not say which library minted it, so adoption re-reads
-    /// the schema header.
-    ///
-    /// # Safety
-    /// `raw` must be a valid `*mut FlatTree` produced by a library whose
-    /// schema lies within this host's supported ABI range.
-    pub unsafe fn from_raw(raw: *mut FlatTree) -> Result<Tree, AbiError> {
-        if raw.is_null() {
-            return Err(AbiError::NullTree);
-        }
-        let schema = unsafe { (*raw).schema };
-        if schema.is_null() {
-            return Err(AbiError::NullSchema);
-        }
-        let runtime_abi = unsafe { (*schema).runtime_abi_version };
-        if runtime_abi != RUNTIME_ABI_VERSION {
-            return Err(AbiError::RuntimeAbiVersion {
-                found: runtime_abi,
-                expected: RUNTIME_ABI_VERSION,
-            });
-        }
-        Ok(Tree { raw })
-    }
-
-    /// Returns the `dbt-asdl` runtime ABI version from the tree's schema header.
-    pub fn runtime_abi_version(&self) -> u32 {
-        self.schema().runtime_abi_version
-    }
-
-    /// Returns the schema ABI version from the tree's schema header.
-    pub fn abi_version(&self) -> u32 {
-        self.schema().abi_version
-    }
-
-    /// Returns the 64-bit FNV-1a schema hash from the tree's schema header.
-    pub fn schema_hash(&self) -> u64 {
-        self.schema().schema_hash
-    }
-
-    /// Resolves a [`FlatName`] in this tree's schema string pool.
-    pub fn resolve_name(&self, name: FlatName) -> &str {
-        unsafe { self.schema().resolve_name(name) }
-    }
-
+impl FlatTree {
     fn schema(&self) -> &FlatSchema {
-        unsafe { &*(*self.raw).schema }
+        unsafe { &*self.schema }
     }
 
     fn types(&self) -> &[FlatTypeInfo] {
@@ -780,47 +723,12 @@ impl Tree {
     }
 
     fn section(&self, i: u16) -> (usize, usize) {
-        let t = unsafe { &*self.raw };
-        let s = unsafe { &*t.sections.add(i as usize) };
+        let s = unsafe { &*self.sections.add(i as usize) };
         (s.ptr as usize, s.stride as usize)
     }
 
-    /// The root node (the `file`).
-    pub fn root(&self) -> Node<'_> {
-        Node {
-            tree: self,
-            ty: self.schema().root_type,
-            index: unsafe { (*self.raw).root_index },
-        }
-    }
-
-    /// A type's index in the schema, by name. Linear scan over the type
-    /// table: resolve once, then keep the index.
-    pub fn type_by_name(&self, name: &str) -> Option<u16> {
-        self.types()
-            .iter()
-            .position(|t| self.resolve_name(t.name) == name)
-            .map(|i| i as u16)
-    }
-
-    /// A constructor's global index in the schema, by name. Constructor
-    /// names are unique across the schema (the ASDL check enforces it), so
-    /// one name identifies one (sum, tag) pair. Resolve once, then keep
-    /// the index.
-    pub fn kind_by_name(&self, ctor_name: &str) -> Option<u32> {
-        self.ctors()
-            .iter()
-            .position(|c| self.resolve_name(c.name) == ctor_name)
-            .map(|i| i as u32)
-    }
-
-    /// The variant name of a simple-sum value, for renderings.
-    pub fn simple_variant_name(&self, ty: u16, tag: u8) -> Option<&str> {
-        let t = self.type_info(ty);
-        let ctor = self.ctors().get(t.ctor_off as usize + tag as usize)?;
-        (tag as u16)
-            .lt(&t.ctor_count)
-            .then(|| self.resolve_name(ctor.name))
+    fn resolve_name(&self, name: FlatName) -> &str {
+        unsafe { self.schema().resolve_name(name) }
     }
 
     fn str_at(&self, s: FlatStr) -> &str {
@@ -833,46 +741,12 @@ impl Tree {
         }
     }
 
-    /// The node's constructor tag within its sum, for typed projections.
-    pub fn sum_tag(&self, ty: u16, index: u32) -> Option<u16> {
+    fn simple_variant_name(&self, ty: u16, tag: u8) -> Option<&str> {
         let t = self.type_info(ty);
-        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) {
-            return None;
-        }
-        let (tag, _) = unpack_sum_ref(index);
-        Some(tag)
-    }
-
-    /// (record pointer, section stride) of a product node, for typed
-    /// projections. None when `ty` is not a product.
-    pub fn product_ptr(&self, ty: u16, index: u32) -> Option<(*const u8, usize)> {
-        let t = self.type_info(ty);
-        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Product)
-            || t.node_section == NONE_U16
-        {
-            return None;
-        }
-        let (base, stride) = self.section(t.node_section);
-        Some(((base + index as usize * stride) as *const u8, stride))
-    }
-
-    /// (payload pointer, section stride) of a sum node's payload when its
-    /// tag is `tag`, for typed projections.
-    pub fn payload_ptr(&self, ty: u16, index: u32, tag: u16) -> Option<(*const u8, usize)> {
-        let t = self.type_info(ty);
-        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) {
-            return None;
-        }
-        let (node_tag, payload) = unpack_sum_ref(index);
-        if node_tag != tag {
-            return None;
-        }
-        let ctor = &self.ctors()[t.ctor_off as usize + tag as usize];
-        if ctor.payload_section == NONE_U16 {
-            return None;
-        }
-        let (pbase, pstride) = self.section(ctor.payload_section);
-        Some(((pbase + payload as usize * pstride) as *const u8, pstride))
+        let ctor = self.ctors().get(t.ctor_off as usize + tag as usize)?;
+        (tag as u16)
+            .lt(&t.ctor_count)
+            .then(|| self.resolve_name(ctor.name))
     }
 
     /// The record base pointer of a node: `(record, fields, ctor)` — the
@@ -906,6 +780,7 @@ impl Tree {
     }
 
     fn read_field(&self, base: *const u8, f: &FlatFieldInfo) -> Value<'_> {
+        let raw = NonNull::from(self);
         let p = unsafe { base.add(f.offset as usize) };
         let enc = FlatEnc::from_u8(f.enc).expect("schema and host ABI agree (handshake)");
         match enc {
@@ -915,11 +790,9 @@ impl Tree {
             FlatEnc::Long => Value::Long(unsafe { p.cast::<i64>().read() }),
             FlatEnc::SimpleSum => Value::SimpleSum(f.type_index, unsafe { p.cast::<u8>().read() }),
             FlatEnc::Str => Value::Str(self.str_at(unsafe { p.cast::<FlatStr>().read() })),
-            FlatEnc::Node => Value::Node(Node {
-                tree: self,
-                ty: f.type_index,
-                index: unsafe { p.cast::<u32>().read() },
-            }),
+            FlatEnc::Node => {
+                Value::Node(Node::new(raw, f.type_index, unsafe { p.cast::<u32>().read() }))
+            }
             FlatEnc::OptBool => match unsafe { p.cast::<OptBool>().read() }.get() {
                 Some(v) => Value::Bool(v),
                 None => Value::None,
@@ -957,19 +830,158 @@ impl Tree {
                 if index == NONE_U32 {
                     Value::None
                 } else {
-                    Value::Node(Node {
-                        tree: self,
-                        ty: f.type_index,
-                        index,
-                    })
+                    Value::Node(Node::new(raw, f.type_index, index))
                 }
             }
-            FlatEnc::Seq => Value::Seq(SeqView {
-                tree: self,
-                elem_ty: f.type_index,
-                seq: unsafe { p.cast::<FlatSeq>().read() },
-            }),
+            FlatEnc::Seq => {
+                Value::Seq(SeqView::new(raw, f.type_index, unsafe { p.cast::<FlatSeq>().read() }))
+            }
         }
+    }
+}
+
+/// A library-owned flat tree under host management.
+///
+/// This wrapper reads the tree in place and frees it through the header's
+/// `release` function on drop.
+#[repr(transparent)]
+pub struct Tree {
+    raw: NonNull<FlatTree>,
+}
+
+impl Tree {
+    /// Take ownership of a library-produced tree. `raw` must come from a
+    /// dialect library's `parse` (or from `convert_file`); the tree is freed
+    /// through its own `release`.
+    ///
+    /// The version handshake is the loader's job, done once per library on
+    /// its `FlatDialect` descriptor; typed projections are not gated beyond
+    /// that (strict-only). The checks here are the per-tree invariants that
+    /// keep the handshake sound afterwards: a host may hold trees from
+    /// several libraries built with different versions, and a `*mut
+    /// FlatTree` does not say which library minted it, so adoption re-reads
+    /// the schema header.
+    ///
+    /// # Safety
+    /// `raw` must be a valid `*mut FlatTree` produced by a library whose
+    /// schema lies within this host's supported ABI range.
+    pub unsafe fn from_raw(raw: *mut FlatTree) -> Result<Tree, AbiError> {
+        let Some(raw) = NonNull::new(raw) else {
+            return Err(AbiError::NullTree);
+        };
+        let schema = unsafe { (*raw.as_ptr()).schema };
+        if schema.is_null() {
+            return Err(AbiError::NullSchema);
+        }
+        let runtime_abi = unsafe { (*schema).runtime_abi_version };
+        if runtime_abi != RUNTIME_ABI_VERSION {
+            return Err(AbiError::RuntimeAbiVersion {
+                found: runtime_abi,
+                expected: RUNTIME_ABI_VERSION,
+            });
+        }
+        Ok(Tree { raw })
+    }
+
+    fn flat(&self) -> &FlatTree {
+        unsafe { self.raw.as_ref() }
+    }
+
+    /// Returns the `dbt-asdl` runtime ABI version from the tree's schema header.
+    pub fn runtime_abi_version(&self) -> u32 {
+        self.flat().schema().runtime_abi_version
+    }
+
+    /// Returns the schema ABI version from the tree's schema header.
+    pub fn abi_version(&self) -> u32 {
+        self.flat().schema().abi_version
+    }
+
+    /// Returns the 64-bit FNV-1a schema hash from the tree's schema header.
+    pub fn schema_hash(&self) -> u64 {
+        self.flat().schema().schema_hash
+    }
+
+    /// Resolves a [`FlatName`] in this tree's schema string pool.
+    pub fn resolve_name(&self, name: FlatName) -> &str {
+        self.flat().resolve_name(name)
+    }
+
+    /// The root node (the `file`).
+    pub fn root(&self) -> Node<'_> {
+        let flat = self.flat();
+        Node::new(self.raw, flat.schema().root_type, flat.root_index)
+    }
+
+    /// A type's index in the schema, by name. Linear scan over the type
+    /// table: resolve once, then keep the index.
+    pub fn type_by_name(&self, name: &str) -> Option<u16> {
+        let flat = self.flat();
+        flat.types()
+            .iter()
+            .position(|t| flat.resolve_name(t.name) == name)
+            .map(|i| i as u16)
+    }
+
+    /// A constructor's global index in the schema, by name. Constructor
+    /// names are unique across the schema (the ASDL check enforces it), so
+    /// one name identifies one (sum, tag) pair. Resolve once, then keep
+    /// the index.
+    pub fn kind_by_name(&self, ctor_name: &str) -> Option<u32> {
+        let flat = self.flat();
+        flat.ctors()
+            .iter()
+            .position(|c| flat.resolve_name(c.name) == ctor_name)
+            .map(|i| i as u32)
+    }
+
+    /// The variant name of a simple-sum value, for renderings.
+    pub fn simple_variant_name(&self, ty: u16, tag: u8) -> Option<&str> {
+        self.flat().simple_variant_name(ty, tag)
+    }
+
+    /// The node's constructor tag within its sum, for typed projections.
+    pub fn sum_tag(&self, ty: u16, index: u32) -> Option<u16> {
+        let t = self.flat().type_info(ty);
+        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) {
+            return None;
+        }
+        let (tag, _) = unpack_sum_ref(index);
+        Some(tag)
+    }
+
+    /// (record pointer, section stride) of a product node, for typed
+    /// projections. None when `ty` is not a product.
+    pub fn product_ptr(&self, ty: u16, index: u32) -> Option<(*const u8, usize)> {
+        let flat = self.flat();
+        let t = flat.type_info(ty);
+        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Product)
+            || t.node_section == NONE_U16
+        {
+            return None;
+        }
+        let (base, stride) = flat.section(t.node_section);
+        Some(((base + index as usize * stride) as *const u8, stride))
+    }
+
+    /// (payload pointer, section stride) of a sum node's payload when its
+    /// tag is `tag`, for typed projections.
+    pub fn payload_ptr(&self, ty: u16, index: u32, tag: u16) -> Option<(*const u8, usize)> {
+        let flat = self.flat();
+        let t = flat.type_info(ty);
+        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) {
+            return None;
+        }
+        let (node_tag, payload) = unpack_sum_ref(index);
+        if node_tag != tag {
+            return None;
+        }
+        let ctor = &flat.ctors()[t.ctor_off as usize + tag as usize];
+        if ctor.payload_section == NONE_U16 {
+            return None;
+        }
+        let (pbase, pstride) = flat.section(ctor.payload_section);
+        Some(((pbase + payload as usize * pstride) as *const u8, pstride))
     }
 
     /// The tree's canonical S-expression.
@@ -982,51 +994,70 @@ impl Tree {
 
 impl Drop for Tree {
     fn drop(&mut self) {
-        unsafe { ((*self.raw).release)(self.raw) }
+        let raw = self.raw.as_ptr();
+        unsafe { ((*raw).release)(raw) }
     }
 }
 
-/// A by-value cursor into a library-owned tree (TSNode-style): the type
-/// index plus the index into the type's node section. Copy, cheap, and
-/// valid for as long as the tree is.
+/// A by-value cursor into a library-owned tree.
+///
+/// This cursor stores the direct `FlatTree` pointer, the schema type index,
+/// and the node index. It is `Copy` and stays valid for the lifetime of the
+/// tree.
 #[derive(Clone, Copy)]
 pub struct Node<'t> {
-    tree: &'t Tree,
+    raw: NonNull<FlatTree>,
     ty: u16,
     index: u32,
+    _marker: PhantomData<&'t Tree>,
 }
 
 impl<'t> Node<'t> {
-    /// The tree this cursor walks.
-    pub fn tree(self) -> &'t Tree {
-        self.tree
+    fn new(raw: NonNull<FlatTree>, ty: u16, index: u32) -> Self {
+        Node {
+            raw,
+            ty,
+            index,
+            _marker: PhantomData,
+        }
+    }
+
+    fn flat(&self) -> &'t FlatTree {
+        unsafe { self.raw.as_ref() }
+    }
+
+    /// Returns the tree that this cursor reads.
+    pub fn tree(&self) -> &'t Tree {
+        unsafe { &*(&raw const self.raw).cast::<Tree>() }
     }
 
     /// The node's type index in the schema.
-    pub fn type_index(self) -> u16 {
+    pub fn type_index(&self) -> u16 {
         self.ty
     }
 
     /// The node's index in its type's node section.
-    pub fn index(self) -> u32 {
+    pub fn index(&self) -> u32 {
         self.index
     }
 
     /// The node's type name (`expr`, `struct_field`, ...).
-    pub fn type_name(self) -> &'t str {
-        self.tree.resolve_name(self.tree.type_info(self.ty).name)
+    pub fn type_name(&self) -> &'t str {
+        let flat = self.flat();
+        flat.resolve_name(flat.type_info(self.ty).name)
     }
 
     /// The node's constructor name, for sum nodes; None for products.
-    pub fn kind(self) -> Option<&'t str> {
-        let (_, _, ctor) = self.tree.node_record(self.ty, self.index);
-        ctor.map(|c| self.tree.resolve_name(c.name))
+    pub fn kind(&self) -> Option<&'t str> {
+        let flat = self.flat();
+        let (_, _, ctor) = flat.node_record(self.ty, self.index);
+        ctor.map(|c| flat.resolve_name(c.name))
     }
 
     /// The node's constructor as a global schema index (compare against
     /// [`Tree::kind_by_name`]); None for products.
-    pub fn kind_id(self) -> Option<u32> {
-        let t = self.tree.type_info(self.ty);
+    pub fn kind_id(&self) -> Option<u32> {
+        let t = self.flat().type_info(self.ty);
         if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Sum) {
             return None;
         }
@@ -1035,26 +1066,26 @@ impl<'t> Node<'t> {
     }
 
     /// The node's fields, as raw descriptors (name + encoding + offset).
-    pub fn fields(self) -> &'t [FlatFieldInfo] {
-        let (_, fields, _) = self.tree.node_record(self.ty, self.index);
+    pub fn fields(&self) -> &'t [FlatFieldInfo] {
+        let (_, fields, _) = self.flat().node_record(self.ty, self.index);
         fields
     }
 
     /// The field named `name`, or None when the node's constructor has no
     /// such field (skew included).
-    pub fn field(self, name: &str) -> Option<Value<'t>> {
-        let (base, fields, _) = self.tree.node_record(self.ty, self.index);
-        let f = fields
-            .iter()
-            .find(|f| self.tree.resolve_name(f.name) == name)?;
-        Some(self.tree.read_field(base, f))
+    pub fn field(&self, name: &str) -> Option<Value<'t>> {
+        let flat = self.flat();
+        let (base, fields, _) = flat.node_record(self.ty, self.index);
+        let f = fields.iter().find(|f| flat.resolve_name(f.name) == name)?;
+        Some(flat.read_field(base, f))
     }
 
     /// The `i`th field, or None when out of range.
-    pub fn field_at(self, i: usize) -> Option<Value<'t>> {
-        let (base, fields, _) = self.tree.node_record(self.ty, self.index);
+    pub fn field_at(&self, i: usize) -> Option<Value<'t>> {
+        let flat = self.flat();
+        let (base, fields, _) = flat.node_record(self.ty, self.index);
         let f = fields.get(i)?;
-        Some(self.tree.read_field(base, f))
+        Some(flat.read_field(base, f))
     }
 }
 
@@ -1081,57 +1112,100 @@ pub enum Value<'t> {
     Seq(SeqView<'t>),
 }
 
-/// A sequence field's elements, read lazily.
+const SEQ_INDEX_BITS: u32 = 24;
+const SEQ_INDEX_MASK: u64 = (1 << SEQ_INDEX_BITS) - 1;
+
+const fn pack_seq_view(elem_ty: u16, seq: FlatSeq) -> u64 {
+    debug_assert!((seq.off as u64) <= SEQ_INDEX_MASK, "sequence offset exceeds 24 bits");
+    debug_assert!((seq.len as u64) <= SEQ_INDEX_MASK, "sequence length exceeds 24 bits");
+    (seq.off as u64 & SEQ_INDEX_MASK)
+        | ((seq.len as u64 & SEQ_INDEX_MASK) << SEQ_INDEX_BITS)
+        | ((elem_ty as u64) << (2 * SEQ_INDEX_BITS))
+}
+
+const fn unpack_seq_view(packed: u64) -> (u16, FlatSeq) {
+    let off = (packed & SEQ_INDEX_MASK) as u32;
+    let len = ((packed >> SEQ_INDEX_BITS) & SEQ_INDEX_MASK) as u32;
+    let elem_ty = (packed >> (2 * SEQ_INDEX_BITS)) as u16;
+    (elem_ty, FlatSeq { off, len })
+}
+
+/// A lazy view over the elements of a sequence field.
+///
+/// This view packs the 24-bit pool offset, the 24-bit element count, and the
+/// 16-bit element type index into one `u64` word. It also stores the direct
+/// `FlatTree` pointer.
 #[derive(Clone, Copy)]
 pub struct SeqView<'t> {
-    tree: &'t Tree,
-    elem_ty: u16,
-    seq: FlatSeq,
+    raw: NonNull<FlatTree>,
+    packed: u64,
+    _marker: PhantomData<&'t Tree>,
 }
 
 impl<'t> SeqView<'t> {
+    fn new(raw: NonNull<FlatTree>, elem_ty: u16, seq: FlatSeq) -> Self {
+        SeqView {
+            raw,
+            packed: pack_seq_view(elem_ty, seq),
+            _marker: PhantomData,
+        }
+    }
+
+    fn flat(&self) -> &'t FlatTree {
+        unsafe { self.raw.as_ref() }
+    }
+
+    fn off(&self) -> usize {
+        let (_, seq) = unpack_seq_view(self.packed);
+        seq.off as usize
+    }
+
     /// Returns the number of elements in the sequence.
-    pub fn len(self) -> usize {
-        self.seq.len as usize
+    pub fn len(&self) -> usize {
+        let (_, seq) = unpack_seq_view(self.packed);
+        seq.len as usize
     }
 
     /// Returns `true` if the sequence contains no elements.
-    pub fn is_empty(self) -> bool {
-        self.seq.len == 0
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// The element type's index in the schema.
-    pub fn elem_type(self) -> u16 {
-        self.elem_ty
+    pub fn elem_type(&self) -> u16 {
+        let (elem_ty, _) = unpack_seq_view(self.packed);
+        elem_ty
     }
 
     /// The `i`th element, or None when out of bounds.
-    pub fn get(self, i: usize) -> Option<Value<'t>> {
-        if i >= self.seq.len as usize {
+    pub fn get(&self, i: usize) -> Option<Value<'t>> {
+        if i >= self.len() {
             return None;
         }
-        let t = self.tree.type_info(self.elem_ty);
-        let (base, stride) = self.tree.section(t.seq_section);
-        let p = (base + (self.seq.off as usize + i) * stride) as *const u8;
+        let flat = self.flat();
+        let elem_ty = self.elem_type();
+        let t = flat.type_info(elem_ty);
+        let (base, stride) = flat.section(t.seq_section);
+        let p = (base + (self.off() + i) * stride) as *const u8;
         let enc = FlatEnc::from_u8(t.enc).expect("schema and host ABI agree (handshake)");
         Some(match enc {
-            FlatEnc::Str => Value::Str(self.tree.str_at(unsafe { p.cast::<FlatStr>().read() })),
-            FlatEnc::SimpleSum => Value::SimpleSum(self.elem_ty, unsafe { p.cast::<u8>().read() }),
+            FlatEnc::Str => Value::Str(flat.str_at(unsafe { p.cast::<FlatStr>().read() })),
+            FlatEnc::SimpleSum => Value::SimpleSum(elem_ty, unsafe { p.cast::<u8>().read() }),
             FlatEnc::Int => Value::Int(unsafe { p.cast::<i32>().read() }),
             FlatEnc::Long => Value::Long(unsafe { p.cast::<i64>().read() }),
-            FlatEnc::Byte | FlatEnc::Bool => Value::Byte(unsafe { p.cast::<u8>().read() }),
-            FlatEnc::Node => Value::Node(Node {
-                tree: self.tree,
-                ty: self.elem_ty,
-                index: unsafe { p.cast::<u32>().read() },
-            }),
+            FlatEnc::Bool => Value::Bool(unsafe { p.cast::<u8>().read() } != 0),
+            FlatEnc::Byte => Value::Byte(unsafe { p.cast::<u8>().read() }),
+            FlatEnc::Node => {
+                Value::Node(Node::new(self.raw, elem_ty, unsafe { p.cast::<u32>().read() }))
+            }
             _ => unreachable!("element encodings are never optional"),
         })
     }
 
     /// Iterate the elements.
-    pub fn iter(self) -> impl Iterator<Item = Value<'t>> {
-        (0..self.seq.len as usize).map(move |i| self.get(i).expect("in bounds"))
+    pub fn iter(&self) -> impl Iterator<Item = Value<'t>> {
+        let len = self.len();
+        (0..len).map(move |i| self.get(i).expect("in bounds"))
     }
 }
 
@@ -1244,10 +1318,10 @@ fn write_node(node: Node, out: &mut String) {
         }
     };
     let fields = node.fields();
-    let node_tree = node.tree;
+    let flat = node.flat();
 
     let printable: Vec<usize> = (0..fields.len())
-        .filter(|&i| !node_tree.resolve_name(fields[i].name).starts_with("span"))
+        .filter(|&i| !flat.resolve_name(fields[i].name).starts_with("span"))
         .collect();
 
     let mut rendered: Vec<(usize, Value)> = Vec::new();
@@ -1272,15 +1346,15 @@ fn write_node(node: Node, out: &mut String) {
     out.push_str(name);
     for (i, value) in rendered {
         out.push_str(" (");
-        out.push_str(node_tree.resolve_name(fields[i].name));
+        out.push_str(flat.resolve_name(fields[i].name));
         out.push(' ');
-        write_value(node_tree, value, out);
+        write_value(flat, value, out);
         out.push(')');
     }
     out.push(')');
 }
 
-fn write_value(tree: &Tree, value: Value, out: &mut String) {
+fn write_value(flat: &FlatTree, value: Value, out: &mut String) {
     match value {
         Value::None => out.push_str("None"),
         Value::Bool(b) => out.push_str(if b { "true" } else { "false" }),
@@ -1289,7 +1363,7 @@ fn write_value(tree: &Tree, value: Value, out: &mut String) {
         Value::Long(v) => push_int(v, out),
         Value::Str(s) => write_escaped(s, out),
         Value::SimpleSum(ty, tag) => {
-            let name = tree.simple_variant_name(ty, tag).expect("tag in range");
+            let name = flat.simple_variant_name(ty, tag).expect("tag in range");
             out.push_str(name);
         }
         Value::Node(n) => write_node(n, out),
@@ -1299,7 +1373,7 @@ fn write_value(tree: &Tree, value: Value, out: &mut String) {
                 if i > 0 {
                     out.push(' ');
                 }
-                write_value(tree, item, out);
+                write_value(flat, item, out);
             }
             out.push(']');
         }
@@ -1471,9 +1545,10 @@ mod tests {
     use std::mem::{align_of, size_of};
 
     use super::{
-        FlatCtorInfo, FlatDialect, FlatFieldInfo, FlatName, FlatSchema, FlatSection, FlatTree,
-        FlatTypeInfo, NONE_I32, NONE_I64, NONE_U8, OptBool, OptByte, OptInt, OptLong,
-        SUM_PAYLOAD_MASK, pack_sum_ref, unpack_sum_ref,
+        FlatCtorInfo, FlatDialect, FlatFieldInfo, FlatName, FlatSchema, FlatSection, FlatSeq,
+        FlatTree, FlatTypeInfo, NONE_I32, NONE_I64, NONE_U8, Node, OptBool, OptByte, OptInt,
+        OptLong, SEQ_INDEX_MASK, SUM_PAYLOAD_MASK, SeqView, Tree, Value, pack_seq_view,
+        pack_sum_ref, unpack_seq_view, unpack_sum_ref,
     };
 
     #[test]
@@ -1542,6 +1617,22 @@ mod tests {
     }
 
     #[test]
+    fn seq_view_pack_and_unpack() {
+        let max_idx = SEQ_INDEX_MASK as u32;
+        for (elem_ty, off, len) in [
+            (0u16, 0u32, 0u32),
+            (1, 42, 7),
+            (12, max_idx, 0),
+            (255, 0, max_idx),
+            (u16::MAX, max_idx, max_idx),
+        ] {
+            let seq = FlatSeq { off, len };
+            let packed = pack_seq_view(elem_ty, seq);
+            assert_eq!(unpack_seq_view(packed), (elem_ty, seq));
+        }
+    }
+
+    #[test]
     fn descriptor_and_header_layouts() {
         assert_eq!(size_of::<FlatName>(), 4);
         assert_eq!(align_of::<FlatName>(), 2);
@@ -1567,6 +1658,21 @@ mod tests {
 
             assert_eq!(size_of::<FlatSchema>(), 64);
             assert_eq!(align_of::<FlatSchema>(), 8);
+
+            assert_eq!(size_of::<Tree>(), 8);
+            assert_eq!(align_of::<Tree>(), 8);
+            assert_eq!(size_of::<Option<Tree>>(), 8);
+
+            assert_eq!(size_of::<Node<'_>>(), 16);
+            assert_eq!(align_of::<Node<'_>>(), 8);
+            assert_eq!(size_of::<Option<Node<'_>>>(), 16);
+
+            assert_eq!(size_of::<SeqView<'_>>(), 16);
+            assert_eq!(align_of::<SeqView<'_>>(), 8);
+            assert_eq!(size_of::<Option<SeqView<'_>>>(), 16);
+
+            assert_eq!(size_of::<Value<'_>>(), 24);
+            assert_eq!(align_of::<Value<'_>>(), 8);
         }
     }
 }
