@@ -881,6 +881,11 @@ fn flat_abi_loads_cdylib_and_exercises_tree_across_boundary() {
     assert!(freeze.contains("type data_type: sum\n"));
     assert!(freeze.contains("type when_then: product size "));
     assert!(freeze.contains("type bin_op: simple_sum (referenced by a stable field)\n"));
+    assert!(freeze.contains("variant 0: Int size 8 align 4\n"));
+    assert!(freeze.contains("nullable: u8 @4\n"));
+    assert!(freeze.contains("unsigned: OptBool @5\n"));
+    assert!(freeze.contains("width: OptByte @6\n"));
+    assert_eq!(std::mem::size_of::<gen_flat::CodeLocation>(), 16);
 }
 
 #[test]
