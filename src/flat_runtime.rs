@@ -11,6 +11,8 @@ pub const RUNTIME_ABI_VERSION: u32 = 1;
 /// The `None` sentinel for optional node references and optional string
 /// offsets.
 pub const NONE_U32: u32 = u32::MAX;
+/// The `None` sentinel for 16-bit schema table and section indices.
+pub const NONE_U16: u16 = u16::MAX;
 /// The `None` sentinel for [`OptBool`] and optional simple-sum values.
 pub const NONE_U8: u8 = u8::MAX;
 /// The `None` sentinel for [`OptInt`].
@@ -19,7 +21,7 @@ pub const NONE_I32: i32 = i32::MIN;
 pub const NONE_I64: i64 = i64::MIN;
 
 /// By convention, section 0 of every tree is the UTF-8 string blob.
-pub const SECTION_STRINGS: u32 = 0;
+pub const SECTION_STRINGS: u16 = 0;
 
 // ---------------------------------------------------------------------------
 // Scalar and small-record boundary types
@@ -202,38 +204,17 @@ pub const fn unpack_sum_ref(index: u32) -> (u16, u32) {
 
 // ---------------------------------------------------------------------------
 // The descriptor types: the dialect library's metadata and the schema-as-data
-// the host's introspection reads. `abi_version` is the first field of both
-// FlatDialect and FlatTree, readable without knowing the rest of the layout.
+// the host's introspection reads.
 // ---------------------------------------------------------------------------
 
-/// A name (or any static string) held by a descriptor: a pointer into the
-/// library's rodata plus its length. Thin pointer + length by hand: fat
-/// pointers never cross the boundary.
+/// A string slice in the schema string table (`FlatSchema::strings`), stored as `{off, len}`.
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FlatName {
-    /// Pointer to static UTF-8 bytes in the library's read-only data.
-    pub ptr: *const u8,
+    /// Byte offset into `FlatSchema::strings`.
+    pub off: u16,
     /// Byte length of the UTF-8 string.
-    pub len: u32,
-}
-
-impl FlatName {
-    /// Creates a `FlatName` from a `'static` string slice.
-    pub const fn from_static(s: &'static str) -> Self {
-        FlatName {
-            ptr: s.as_ptr(),
-            len: s.len() as u32,
-        }
-    }
-    /// The name as a str. Safe to call on any descriptor the handshake
-    /// accepted: the pointed-to memory is the library's static rodata, and
-    /// libraries are never unloaded.
-    pub fn as_str<'t>(self) -> &'t str {
-        unsafe {
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.ptr, self.len as usize))
-        }
-    }
+    pub len: u16,
 }
 
 /// Encoding descriptor for the built-in types.
@@ -326,22 +307,22 @@ impl FlatTypeKind {
 
 /// One field of a constructor payload or product record.
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FlatFieldInfo {
     /// Field name in the ASDL specification.
     pub name: FlatName,
     /// Byte offset of the field within its record.
-    pub offset: u32,
-    /// A `FlatEnc` value.
-    pub enc: u8,
+    pub offset: u16,
     /// The referenced/element type, for `SimpleSum`/`Node`/`OptNode`/`Seq`/
-    /// `OptSimpleSum` encodings; `u16::MAX` otherwise.
+    /// `OptSimpleSum` encodings; [`NONE_U16`] otherwise.
     pub type_index: u16,
+    /// A [`FlatEnc`] value.
+    pub enc: u8,
 }
 
 /// One constructor of a sum (compound or simple).
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FlatCtorInfo {
     /// Constructor name in the ASDL specification.
     pub name: FlatName,
@@ -349,45 +330,46 @@ pub struct FlatCtorInfo {
     pub tag: u16,
     /// The owning sum's index in the type table.
     pub type_index: u16,
-    /// The section holding this constructor's payload records, or -1.
-    pub payload_section: i32,
-    /// Pointer to the constructor's field descriptor table, or null when `field_count == 0`.
-    pub fields: *const FlatFieldInfo,
-    /// Number of fields in `fields`.
-    pub field_count: u32,
+    /// The section holding this constructor's payload records, or [`NONE_U16`].
+    pub payload_section: u16,
+    /// Start index in `FlatSchema::fields` for this constructor's fields.
+    pub field_off: u16,
+    /// Number of fields for this constructor.
+    pub field_count: u16,
 }
 
 /// One type of the schema.
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FlatTypeInfo {
     /// Type name in the ASDL specification.
     pub name: FlatName,
-    /// A `FlatTypeKind` value.
+    /// A [`FlatTypeKind`] value.
     pub kind: u8,
-    /// The `FlatEnc` of a value of this type when it appears inline or as a
+    /// The [`FlatEnc`] of a value of this type when it appears inline or as a
     /// sequence element (`Node` for products and compound sums, `Str` for
     /// `identifier`/`string`, the scalar encodings for the rest).
     pub enc: u8,
-    /// The section that holds this product type's records, or -1 for non-product types.
-    pub node_section: i32,
-    /// The section holding this type's sequence pool, or -1 if the type
+    /// The section that holds this product type's records, or [`NONE_U16`] for non-product types.
+    pub node_section: u16,
+    /// The section holding this type's sequence pool, or [`NONE_U16`] if the type
     /// never appears as `T*`.
-    pub seq_section: i32,
+    pub seq_section: u16,
     /// For sums: the constructors are `ctors[ctor_off .. ctor_off +
     /// ctor_count]`, tags indexing within.
-    pub ctor_off: u32,
+    pub ctor_off: u16,
     /// Number of constructors for sum types, or `0` for products and builtins.
-    pub ctor_count: u32,
-    /// For products: the product's fields.
-    pub fields: *const FlatFieldInfo,
+    pub ctor_count: u16,
+    /// For products: start index in `FlatSchema::fields` for this product's fields.
+    pub field_off: u16,
     /// Number of fields for product types, or `0` otherwise.
-    pub field_count: u32,
+    pub field_count: u16,
 }
 
-/// The schema of the `sql.asdl` a library was generated from, as static data
-/// inside the library. The host reads it through this layout; identity is
-/// by name, resolved at run time, never by hardcoded index.
+/// The schema of the exported ASDL tree.
+///
+/// Allows runtime introspection of library-constructed trees from the host
+/// binary, using the [`Tree`] API. Embedded as static data on the library side.
 #[repr(C)]
 pub struct FlatSchema {
     /// Layout version of the `dbt-asdl` boundary descriptors (`RUNTIME_ABI_VERSION`).
@@ -396,16 +378,40 @@ pub struct FlatSchema {
     pub abi_version: u32,
     /// 64-bit FNV-1a hash of the source `.asdl` bytes.
     pub schema_hash: u64,
+    /// Byte length of `strings`.
+    pub strings_len: u32,
+    /// Number of entries in `types`.
+    pub type_count: u16,
+    /// Number of entries in `ctors`.
+    pub ctor_count: u16,
+    /// Number of entries in `fields`.
+    pub field_count: u16,
+    /// The type index of the root (`file`).
+    pub root_type: u16,
+    /// Pointer to the schema's static UTF-8 string pool.
+    pub strings: *const u8,
     /// Pointer to the schema's type descriptor table.
     pub types: *const FlatTypeInfo,
-    /// Number of entries in `types`.
-    pub type_count: u32,
     /// Pointer to the schema's constructor descriptor table.
     pub ctors: *const FlatCtorInfo,
-    /// Number of entries in `ctors`.
-    pub ctor_count: u32,
-    /// The type index of the root (`file`).
-    pub root_type: u32,
+    /// Pointer to the schema's field descriptor table.
+    pub fields: *const FlatFieldInfo,
+}
+
+impl FlatSchema {
+    /// Resolves `name` to a string slice in this schema's string pool.
+    ///
+    /// # Safety
+    /// This schema must have passed [`validate_schema`], and `name` must be in bounds of
+    /// `self.strings`.
+    pub unsafe fn resolve_name(&self, name: FlatName) -> &str {
+        unsafe {
+            std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                self.strings.add(name.off as usize),
+                name.len as usize,
+            ))
+        }
+    }
 }
 
 /// One section of a tree: a typed array the library owns.
@@ -423,41 +429,55 @@ pub struct FlatSection {
 /// A parsed tree, owned by the library.
 #[repr(C)]
 pub struct FlatTree {
-    /// Layout version of the `dbt-asdl` boundary descriptors (`RUNTIME_ABI_VERSION`).
-    pub runtime_abi_version: u32,
-    /// Schema ABI version from the `.asdl` specification (`ABI_VERSION`).
-    pub abi_version: u32,
-    /// 64-bit FNV-1a hash of the source `.asdl` bytes.
-    pub schema_hash: u64,
-    /// Library-side destructor: frees the tree and every section.
-    pub release: unsafe extern "C" fn(*mut FlatTree),
-    /// Pointer to the static schema descriptor of the library.
-    pub schema: *const FlatSchema,
-    /// Pointer to the section array of length `section_count`.
-    pub sections: *mut FlatSection,
     /// Number of sections in `sections`.
     pub section_count: u32,
     /// The root node's index in the schema's `root_type` section.
     pub root_index: u32,
+    /// Pointer to the static schema descriptor of the library.
+    pub schema: *const FlatSchema,
+    /// Pointer to the section array of length `section_count`.
+    pub sections: *mut FlatSection,
+    /// Library-side destructor: frees the tree and every section.
+    pub release: unsafe extern "C" fn(*mut FlatTree),
 }
 
 /// A loaded dialect library's descriptor: metadata + entry points.
 #[repr(C)]
 pub struct FlatDialect {
-    /// Layout version of the `dbt-asdl` boundary descriptors (`RUNTIME_ABI_VERSION`).
-    pub runtime_abi_version: u32,
-    /// Schema ABI version from the `.asdl` specification (`ABI_VERSION`).
-    pub abi_version: u32,
-    /// 64-bit FNV-1a hash of the source `.asdl` bytes.
-    pub schema_hash: u64,
-    /// Dialect identifier name (for example, `"snowflake"`).
-    pub name: FlatName,
-    /// Dialect library version string (for example, `"1.0.0"`).
-    pub dialect_version: FlatName,
+    /// Pointer to the static UTF-8 bytes of the dialect identifier name.
+    pub name_ptr: *const u8,
+    /// Pointer to the static UTF-8 bytes of the dialect library version string.
+    pub dialect_version_ptr: *const u8,
+    /// Byte length of the dialect identifier name.
+    pub name_len: u32,
+    /// Byte length of the dialect library version string.
+    pub dialect_version_len: u32,
     /// Pointer to the static schema descriptor of the library.
     pub schema: *const FlatSchema,
     /// Synchronous parse entry point of the dialect library.
     pub parse: FlatParseFn,
+}
+
+impl FlatDialect {
+    /// Returns the dialect identifier name.
+    pub fn name(&self) -> &str {
+        unsafe {
+            std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                self.name_ptr,
+                self.name_len as usize,
+            ))
+        }
+    }
+
+    /// Returns the dialect library version string.
+    pub fn dialect_version(&self) -> &str {
+        unsafe {
+            std::str::from_utf8_unchecked(std::slice::from_raw_parts(
+                self.dialect_version_ptr,
+                self.dialect_version_len as usize,
+            ))
+        }
+    }
 }
 
 /// The parse entry point. Reads `src[..src_len]` synchronously. Returns the
@@ -475,10 +495,6 @@ pub type FlatParseFn = unsafe extern "C" fn(
 // The descriptor tables are static rodata shared across threads; the raw
 // pointers inside point at other statics of the same library, which is
 // never unloaded (the load-once policy), so the shared references are sound.
-unsafe impl Sync for FlatName {}
-unsafe impl Sync for FlatFieldInfo {}
-unsafe impl Sync for FlatCtorInfo {}
-unsafe impl Sync for FlatTypeInfo {}
 unsafe impl Sync for FlatSchema {}
 unsafe impl Sync for FlatDialect {}
 
@@ -550,19 +566,27 @@ pub unsafe fn validate_schema(schema: &FlatSchema, abi_version: u32) -> Result<(
             schema.abi_version
         ));
     }
+    if schema.strings_len > 0 && schema.strings.is_null() {
+        return Err("null string table".to_string());
+    }
     if schema.type_count > 0 && schema.types.is_null() {
         return Err("null type table".to_string());
     }
     if schema.ctor_count > 0 && schema.ctors.is_null() {
         return Err("null constructor table".to_string());
     }
+    if schema.field_count > 0 && schema.fields.is_null() {
+        return Err("null field table".to_string());
+    }
     if schema.root_type >= schema.type_count {
         return Err(format!("root type {} out of range", schema.root_type));
     }
-    let types = unsafe { table(schema.types, schema.type_count) };
-    let ctors = unsafe { table(schema.ctors, schema.ctor_count) };
+    let strings = unsafe { table(schema.strings, schema.strings_len) };
+    let types = unsafe { table(schema.types, schema.type_count as u32) };
+    let ctors = unsafe { table(schema.ctors, schema.ctor_count as u32) };
+    let fields = unsafe { table(schema.fields, schema.field_count as u32) };
     for (i, t) in types.iter().enumerate() {
-        let name = t.name.as_str();
+        let name = validate_name(strings, t.name, &format!("type[{i}]"))?;
         let kind = FlatTypeKind::from_u8(t.kind)
             .ok_or_else(|| format!("type {name}: unknown kind {}", t.kind))?;
         let enc = FlatEnc::from_u8(t.enc)
@@ -579,29 +603,40 @@ pub unsafe fn validate_schema(schema: &FlatSchema, abi_version: u32) -> Result<(
         if !enc_ok {
             return Err(format!("type {name}: kind {kind:?} with encoding {enc:?}"));
         }
-        if t.node_section < -1 || t.seq_section < -1 {
-            return Err(format!("type {name}: section index below -1"));
-        }
         if kind == FlatTypeKind::Product {
-            validate_field_table(name, t.fields, t.field_count, schema.type_count)?;
+            if t.node_section == NONE_U16 {
+                return Err(format!("type {name}: product has no node section"));
+            }
+            validate_field_range(
+                name,
+                strings,
+                fields,
+                t.field_off,
+                t.field_count,
+                schema.type_count,
+            )?;
         }
         if kind == FlatTypeKind::SimpleSum || kind == FlatTypeKind::Sum {
-            if t.ctor_off + t.ctor_count > schema.ctor_count {
+            if (t.ctor_off as u32) + (t.ctor_count as u32) > (schema.ctor_count as u32) {
                 return Err(format!("type {name}: constructor range out of bounds"));
             }
             for j in 0..t.ctor_count {
                 let c = &ctors[(t.ctor_off + j) as usize];
-                let cname = c.name.as_str();
+                let cname = validate_name(strings, c.name, &format!("type {name} ctor[{j}]"))?;
                 if c.type_index != i as u16 {
                     return Err(format!("constructor {cname}: lists owning type {}", c.type_index));
                 }
-                if c.tag != j as u16 {
+                if c.tag != j {
                     return Err(format!("constructor {cname}: tag {} != its position {j}", c.tag));
                 }
-                if c.payload_section < -1 {
-                    return Err(format!("constructor {cname}: section index below -1"));
-                }
-                validate_field_table(cname, c.fields, c.field_count, schema.type_count)?;
+                validate_field_range(
+                    cname,
+                    strings,
+                    fields,
+                    c.field_off,
+                    c.field_count,
+                    schema.type_count,
+                )?;
             }
         }
     }
@@ -619,21 +654,31 @@ unsafe fn table<'a, T>(ptr: *const T, len: u32) -> &'a [T] {
     }
 }
 
-/// One field table of a product or constructor payload: every encoding
-/// byte decodes, and every encoding that references another type names a
-/// real one.
-fn validate_field_table(
+fn validate_name<'a>(strings: &'a [u8], name: FlatName, what: &str) -> Result<&'a str, String> {
+    let start = name.off as usize;
+    let end = start + name.len as usize;
+    let bytes = strings
+        .get(start..end)
+        .ok_or_else(|| format!("{what}: name range {start}..{end} out of bounds"))?;
+    std::str::from_utf8(bytes).map_err(|e| format!("{what}: name is not valid UTF-8: {e}"))
+}
+
+/// Validates one contiguous slice of `fields` belonging to a product or constructor.
+fn validate_field_range(
     owner: &str,
-    fields: *const FlatFieldInfo,
-    field_count: u32,
-    type_count: u32,
+    strings: &[u8],
+    fields: &[FlatFieldInfo],
+    field_off: u16,
+    field_count: u16,
+    type_count: u16,
 ) -> Result<(), String> {
-    if field_count > 0 && fields.is_null() {
-        return Err(format!("{owner}: null field table with {field_count} fields"));
-    }
-    let fields = unsafe { table(fields, field_count) };
-    for f in fields {
-        let fname = f.name.as_str();
+    let start = field_off as usize;
+    let end = start + field_count as usize;
+    let owner_fields = fields
+        .get(start..end)
+        .ok_or_else(|| format!("{owner}: field range {start}..{end} out of bounds"))?;
+    for f in owner_fields {
+        let fname = validate_name(strings, f.name, owner)?;
         let enc = FlatEnc::from_u8(f.enc)
             .ok_or_else(|| format!("{owner}.{fname}: unknown encoding {}", f.enc))?;
         let references_type = matches!(
@@ -644,7 +689,7 @@ fn validate_field_table(
                 | FlatEnc::OptNode
                 | FlatEnc::Seq
         );
-        if references_type && (f.type_index as u32) >= type_count {
+        if references_type && f.type_index >= type_count {
             return Err(format!("{owner}.{fname}: type index {} out of range", f.type_index));
         }
     }
@@ -668,7 +713,7 @@ impl Tree {
     /// keep the handshake sound afterwards: a host may hold trees from
     /// several libraries built with different versions, and a `*mut
     /// FlatTree` does not say which library minted it, so adoption re-reads
-    /// the header (three scalar comparisons).
+    /// the schema header.
     ///
     /// # Safety
     /// `raw` must be a valid `*mut FlatTree` produced by a library whose
@@ -677,40 +722,38 @@ impl Tree {
         if raw.is_null() {
             return Err(AbiError::NullTree);
         }
-        let runtime_abi = unsafe { (*raw).runtime_abi_version };
+        let schema = unsafe { (*raw).schema };
+        if schema.is_null() {
+            return Err(AbiError::NullSchema);
+        }
+        let runtime_abi = unsafe { (*schema).runtime_abi_version };
         if runtime_abi != RUNTIME_ABI_VERSION {
             return Err(AbiError::RuntimeAbiVersion {
                 found: runtime_abi,
                 expected: RUNTIME_ABI_VERSION,
             });
         }
-        if unsafe { (*raw).schema.is_null() } {
-            return Err(AbiError::NullSchema);
-        }
-        let abi = unsafe { (*raw).abi_version };
-        let schema_abi = unsafe { (*(*raw).schema).abi_version };
-        if abi != schema_abi {
-            return Err(AbiError::AbiVersion {
-                found: abi,
-                expected: schema_abi,
-            });
-        }
         Ok(Tree { raw })
     }
 
-    /// Returns the `dbt-asdl` runtime ABI version from the tree header.
+    /// Returns the `dbt-asdl` runtime ABI version from the tree's schema header.
     pub fn runtime_abi_version(&self) -> u32 {
-        unsafe { (*self.raw).runtime_abi_version }
+        self.schema().runtime_abi_version
     }
 
-    /// Returns the schema ABI version from the tree header.
+    /// Returns the schema ABI version from the tree's schema header.
     pub fn abi_version(&self) -> u32 {
-        unsafe { (*self.raw).abi_version }
+        self.schema().abi_version
     }
 
-    /// Returns the 64-bit FNV-1a schema hash from the tree header.
+    /// Returns the 64-bit FNV-1a schema hash from the tree's schema header.
     pub fn schema_hash(&self) -> u64 {
-        unsafe { (*self.raw).schema_hash }
+        self.schema().schema_hash
+    }
+
+    /// Resolves a [`FlatName`] in this tree's schema string pool.
+    pub fn resolve_name(&self, name: FlatName) -> &str {
+        unsafe { self.schema().resolve_name(name) }
     }
 
     fn schema(&self) -> &FlatSchema {
@@ -719,19 +762,24 @@ impl Tree {
 
     fn types(&self) -> &[FlatTypeInfo] {
         let s = self.schema();
-        unsafe { table(s.types, s.type_count) }
+        unsafe { table(s.types, s.type_count as u32) }
     }
 
     fn ctors(&self) -> &[FlatCtorInfo] {
         let s = self.schema();
-        unsafe { table(s.ctors, s.ctor_count) }
+        unsafe { table(s.ctors, s.ctor_count as u32) }
+    }
+
+    fn fields(&self) -> &[FlatFieldInfo] {
+        let s = self.schema();
+        unsafe { table(s.fields, s.field_count as u32) }
     }
 
     fn type_info(&self, ty: u16) -> &FlatTypeInfo {
         &self.types()[ty as usize]
     }
 
-    fn section(&self, i: i32) -> (usize, usize) {
+    fn section(&self, i: u16) -> (usize, usize) {
         let t = unsafe { &*self.raw };
         let s = unsafe { &*t.sections.add(i as usize) };
         (s.ptr as usize, s.stride as usize)
@@ -741,7 +789,7 @@ impl Tree {
     pub fn root(&self) -> Node<'_> {
         Node {
             tree: self,
-            ty: self.schema().root_type as u16,
+            ty: self.schema().root_type,
             index: unsafe { (*self.raw).root_index },
         }
     }
@@ -751,7 +799,7 @@ impl Tree {
     pub fn type_by_name(&self, name: &str) -> Option<u16> {
         self.types()
             .iter()
-            .position(|t| t.name.as_str() == name)
+            .position(|t| self.resolve_name(t.name) == name)
             .map(|i| i as u16)
     }
 
@@ -762,7 +810,7 @@ impl Tree {
     pub fn kind_by_name(&self, ctor_name: &str) -> Option<u32> {
         self.ctors()
             .iter()
-            .position(|c| c.name.as_str() == ctor_name)
+            .position(|c| self.resolve_name(c.name) == ctor_name)
             .map(|i| i as u32)
     }
 
@@ -770,11 +818,13 @@ impl Tree {
     pub fn simple_variant_name(&self, ty: u16, tag: u8) -> Option<&str> {
         let t = self.type_info(ty);
         let ctor = self.ctors().get(t.ctor_off as usize + tag as usize)?;
-        (tag as u32).lt(&t.ctor_count).then(|| ctor.name.as_str())
+        (tag as u16)
+            .lt(&t.ctor_count)
+            .then(|| self.resolve_name(ctor.name))
     }
 
     fn str_at(&self, s: FlatStr) -> &str {
-        let (base, _) = self.section(SECTION_STRINGS as i32);
+        let (base, _) = self.section(SECTION_STRINGS);
         unsafe {
             std::str::from_utf8_unchecked(std::slice::from_raw_parts(
                 (base + s.off as usize) as *const u8,
@@ -797,7 +847,9 @@ impl Tree {
     /// projections. None when `ty` is not a product.
     pub fn product_ptr(&self, ty: u16, index: u32) -> Option<(*const u8, usize)> {
         let t = self.type_info(ty);
-        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Product) || t.node_section < 0 {
+        if FlatTypeKind::from_u8(t.kind) != Some(FlatTypeKind::Product)
+            || t.node_section == NONE_U16
+        {
             return None;
         }
         let (base, stride) = self.section(t.node_section);
@@ -816,7 +868,7 @@ impl Tree {
             return None;
         }
         let ctor = &self.ctors()[t.ctor_off as usize + tag as usize];
-        if ctor.payload_section < 0 {
+        if ctor.payload_section == NONE_U16 {
             return None;
         }
         let (pbase, pstride) = self.section(ctor.payload_section);
@@ -829,22 +881,25 @@ impl Tree {
         &self,
         ty: u16,
         index: u32,
-    ) -> (*const u8, &'static [FlatFieldInfo], Option<&FlatCtorInfo>) {
+    ) -> (*const u8, &[FlatFieldInfo], Option<&FlatCtorInfo>) {
         let t = self.type_info(ty);
+        let all_fields = self.fields();
         match FlatTypeKind::from_u8(t.kind) {
             Some(FlatTypeKind::Product) => {
                 let (base, stride) = self.section(t.node_section);
-                let fields = unsafe { table(t.fields, t.field_count) };
+                let start = t.field_off as usize;
+                let fields = &all_fields[start..start + t.field_count as usize];
                 ((base + index as usize * stride) as *const u8, fields, None)
             }
             _ => {
                 let (tag, payload) = unpack_sum_ref(index);
                 let ctor = &self.ctors()[t.ctor_off as usize + tag as usize];
-                if ctor.payload_section < 0 {
+                if ctor.payload_section == NONE_U16 {
                     return (std::ptr::null(), &[], Some(ctor));
                 }
                 let (pbase, pstride) = self.section(ctor.payload_section);
-                let fields = unsafe { table(ctor.fields, ctor.field_count) };
+                let start = ctor.field_off as usize;
+                let fields = &all_fields[start..start + ctor.field_count as usize];
                 ((pbase + payload as usize * pstride) as *const u8, fields, Some(ctor))
             }
         }
@@ -959,13 +1014,13 @@ impl<'t> Node<'t> {
 
     /// The node's type name (`expr`, `struct_field`, ...).
     pub fn type_name(self) -> &'t str {
-        self.tree.type_info(self.ty).name.as_str()
+        self.tree.resolve_name(self.tree.type_info(self.ty).name)
     }
 
     /// The node's constructor name, for sum nodes; None for products.
     pub fn kind(self) -> Option<&'t str> {
         let (_, _, ctor) = self.tree.node_record(self.ty, self.index);
-        ctor.map(|c| c.name.as_str())
+        ctor.map(|c| self.tree.resolve_name(c.name))
     }
 
     /// The node's constructor as a global schema index (compare against
@@ -976,7 +1031,7 @@ impl<'t> Node<'t> {
             return None;
         }
         let (tag, _) = unpack_sum_ref(self.index);
-        Some(t.ctor_off + tag as u32)
+        Some(t.ctor_off as u32 + tag as u32)
     }
 
     /// The node's fields, as raw descriptors (name + encoding + offset).
@@ -989,7 +1044,9 @@ impl<'t> Node<'t> {
     /// such field (skew included).
     pub fn field(self, name: &str) -> Option<Value<'t>> {
         let (base, fields, _) = self.tree.node_record(self.ty, self.index);
-        let f = fields.iter().find(|f| f.name.as_str() == name)?;
+        let f = fields
+            .iter()
+            .find(|f| self.tree.resolve_name(f.name) == name)?;
         Some(self.tree.read_field(base, f))
     }
 
@@ -1141,11 +1198,10 @@ pub unsafe fn parse_entry(
 macro_rules! export_sql_dialect {
     ($entry:ident, $name:expr, $version:expr, $parse:expr) => {
         static DIALECT: $crate::FlatDialect = $crate::FlatDialect {
-            runtime_abi_version: $crate::RUNTIME_ABI_VERSION,
-            abi_version: ABI_VERSION,
-            schema_hash: SCHEMA_HASH,
-            name: $crate::FlatName::from_static($name),
-            dialect_version: $crate::FlatName::from_static($version),
+            name_ptr: ($name).as_ptr(),
+            dialect_version_ptr: ($version).as_ptr(),
+            name_len: ($name).len() as u32,
+            dialect_version_len: ($version).len() as u32,
             schema: &SCHEMA,
             parse: {
                 unsafe extern "C" fn wrapped(
@@ -1170,6 +1226,7 @@ macro_rules! export_sql_dialect {
         }
     };
 }
+
 fn camel_sexpr(name: &str) -> String {
     name.split('_')
         .map(|p| p[..1].to_uppercase() + &p[1..])
@@ -1187,9 +1244,10 @@ fn write_node(node: Node, out: &mut String) {
         }
     };
     let fields = node.fields();
+    let node_tree = node.tree;
 
     let printable: Vec<usize> = (0..fields.len())
-        .filter(|&i| !fields[i].name.as_str().starts_with("span"))
+        .filter(|&i| !node_tree.resolve_name(fields[i].name).starts_with("span"))
         .collect();
 
     let mut rendered: Vec<(usize, Value)> = Vec::new();
@@ -1212,10 +1270,9 @@ fn write_node(node: Node, out: &mut String) {
     }
     out.push('(');
     out.push_str(name);
-    let node_tree = node.tree;
     for (i, value) in rendered {
         out.push_str(" (");
-        out.push_str(fields[i].name.as_str());
+        out.push_str(node_tree.resolve_name(fields[i].name));
         out.push(' ');
         write_value(node_tree, value, out);
         out.push(')');
@@ -1259,7 +1316,7 @@ fn push_int(v: i64, out: &mut String) {
 pub mod loader {
     use std::path::Path;
 
-    use super::{AbiError, FlatDialect, RUNTIME_ABI_VERSION, Tree, validate_schema};
+    use super::{AbiError, FlatDialect, FlatSchema, RUNTIME_ABI_VERSION, Tree, validate_schema};
     /// A loaded dialect library: its descriptor plus the parse entry point.
     ///
     /// The library is never unloaded (the load-once policy), so the descriptor
@@ -1324,23 +1381,23 @@ pub mod loader {
                 return Err(LoadError::BadSchema("null descriptor".to_string()));
             }
             let descriptor = unsafe { &*raw };
-            if descriptor.runtime_abi_version != RUNTIME_ABI_VERSION {
-                return Err(LoadError::Abi(AbiError::RuntimeAbiVersion {
-                    found: descriptor.runtime_abi_version,
-                    expected: RUNTIME_ABI_VERSION,
-                }));
-            }
-            if descriptor.abi_version != abi_version {
-                return Err(LoadError::Abi(AbiError::AbiVersion {
-                    found: descriptor.abi_version,
-                    expected: abi_version,
-                }));
-            }
             if descriptor.schema.is_null() {
                 return Err(LoadError::Abi(AbiError::NullSchema));
             }
-            unsafe { validate_schema(&*descriptor.schema, abi_version) }
-                .map_err(LoadError::BadSchema)?;
+            let schema = unsafe { &*descriptor.schema };
+            if schema.runtime_abi_version != RUNTIME_ABI_VERSION {
+                return Err(LoadError::Abi(AbiError::RuntimeAbiVersion {
+                    found: schema.runtime_abi_version,
+                    expected: RUNTIME_ABI_VERSION,
+                }));
+            }
+            if schema.abi_version != abi_version {
+                return Err(LoadError::Abi(AbiError::AbiVersion {
+                    found: schema.abi_version,
+                    expected: abi_version,
+                }));
+            }
+            unsafe { validate_schema(schema, abi_version) }.map_err(LoadError::BadSchema)?;
             std::mem::forget(lib);
             Ok(Dialect { descriptor })
         }
@@ -1350,19 +1407,34 @@ pub mod loader {
             self.descriptor
         }
 
+        /// The library's static schema descriptor.
+        pub fn schema(&self) -> &FlatSchema {
+            unsafe { &*self.descriptor.schema }
+        }
+
+        /// Returns the `dbt-asdl` runtime ABI version of the loaded library.
+        pub fn runtime_abi_version(&self) -> u32 {
+            self.schema().runtime_abi_version
+        }
+
+        /// Returns the schema ABI version of the loaded library.
+        pub fn abi_version(&self) -> u32 {
+            self.schema().abi_version
+        }
+
         /// The dialect's name.
         pub fn name(&self) -> &str {
-            self.descriptor.name.as_str()
+            self.descriptor.name()
         }
 
         /// The dialect library's own version string.
         pub fn dialect_version(&self) -> &str {
-            self.descriptor.dialect_version.as_str()
+            self.descriptor.dialect_version()
         }
 
         /// The hash of the `sql.asdl` the library was generated from.
         pub fn schema_hash(&self) -> u64 {
-            self.descriptor.schema_hash
+            self.schema().schema_hash
         }
 
         /// Parse `sql`, returning the library-owned tree under host management.
@@ -1385,7 +1457,7 @@ pub mod loader {
             }
             let tree =
                 unsafe { Tree::from_raw(raw) }.expect("the library passed the load-time handshake");
-            assert_eq!(tree.abi_version(), self.descriptor.abi_version);
+            assert_eq!(tree.abi_version(), self.abi_version());
             Ok(tree)
         }
     }
@@ -1399,8 +1471,9 @@ mod tests {
     use std::mem::{align_of, size_of};
 
     use super::{
-        NONE_I32, NONE_I64, NONE_U8, OptBool, OptByte, OptInt, OptLong, SUM_PAYLOAD_MASK,
-        pack_sum_ref, unpack_sum_ref,
+        FlatCtorInfo, FlatDialect, FlatFieldInfo, FlatName, FlatSchema, FlatSection, FlatTree,
+        FlatTypeInfo, NONE_I32, NONE_I64, NONE_U8, OptBool, OptByte, OptInt, OptLong,
+        SUM_PAYLOAD_MASK, pack_sum_ref, unpack_sum_ref,
     };
 
     #[test]
@@ -1465,6 +1538,35 @@ mod tests {
         ] {
             let packed = pack_sum_ref(tag, payload);
             assert_eq!(unpack_sum_ref(packed), (tag, payload));
+        }
+    }
+
+    #[test]
+    fn descriptor_and_header_layouts() {
+        assert_eq!(size_of::<FlatName>(), 4);
+        assert_eq!(align_of::<FlatName>(), 2);
+
+        assert_eq!(size_of::<FlatFieldInfo>(), 10);
+        assert_eq!(align_of::<FlatFieldInfo>(), 2);
+
+        assert_eq!(size_of::<FlatCtorInfo>(), 14);
+        assert_eq!(align_of::<FlatCtorInfo>(), 2);
+
+        assert_eq!(size_of::<FlatTypeInfo>(), 18);
+        assert_eq!(align_of::<FlatTypeInfo>(), 2);
+
+        if size_of::<*const u8>() == 8 {
+            assert_eq!(size_of::<FlatSection>(), 16);
+            assert_eq!(align_of::<FlatSection>(), 8);
+
+            assert_eq!(size_of::<FlatTree>(), 32);
+            assert_eq!(align_of::<FlatTree>(), 8);
+
+            assert_eq!(size_of::<FlatDialect>(), 40);
+            assert_eq!(align_of::<FlatDialect>(), 8);
+
+            assert_eq!(size_of::<FlatSchema>(), 64);
+            assert_eq!(align_of::<FlatSchema>(), 8);
         }
     }
 }

@@ -670,8 +670,8 @@ fn flat_abi_loads_cdylib_and_exercises_tree_across_boundary() {
         .expect("load mini-sql-dialect shared library");
     assert_eq!(dialect.name(), "mini");
     assert_eq!(dialect.dialect_version(), "0.1.0");
-    assert_eq!(dialect.descriptor().runtime_abi_version, dbt_asdl::RUNTIME_ABI_VERSION);
-    assert_eq!(dialect.descriptor().abi_version, gen_flat::ABI_VERSION);
+    assert_eq!(dialect.runtime_abi_version(), dbt_asdl::RUNTIME_ABI_VERSION);
+    assert_eq!(dialect.abi_version(), gen_flat::ABI_VERSION);
     assert_ne!(dialect.schema_hash(), 0);
 
     match dialect.parse("") {
@@ -906,13 +906,13 @@ fn flat_abi_version_drift_and_incompatible_version_refusal() {
 
     let v2_dialect = unsafe { Dialect::load(&dylib_path, "v2", 2) }
         .expect("load v2 dialect when expecting ABI version 2");
-    assert_eq!(v2_dialect.descriptor().abi_version, 2);
+    assert_eq!(v2_dialect.abi_version(), 2);
 
     let current = unsafe { Dialect::load(&dylib_path, "mini", gen_flat::ABI_VERSION) }.unwrap();
     let legacy = unsafe { Dialect::load(&dylib_path, "legacy", gen_flat::ABI_VERSION) }
         .expect("host built from newer .asdl loads dialect built from older compatible .asdl");
 
-    assert_eq!(legacy.descriptor().abi_version, gen_flat::ABI_VERSION);
+    assert_eq!(legacy.abi_version(), gen_flat::ABI_VERSION);
     assert_ne!(legacy.schema_hash(), current.schema_hash());
 
     let tree = legacy.parse("SELECT 1").expect("parse with legacy dialect");
