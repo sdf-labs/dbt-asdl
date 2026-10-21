@@ -8,7 +8,7 @@ use crate::sexpr::write_escaped;
 /// (`FlatDialect`, `FlatSchema`, `FlatTree`, `FlatSection`, `FlatStr`,
 /// `FlatSeq`, and `Opt*`). Checked at load time before any schema table or
 /// schema-specific `abi_version` is read.
-pub const RUNTIME_ABI_VERSION: u32 = 1;
+pub const RUNTIME_ABI_VERSION: u32 = 2;
 
 /// The `None` sentinel for optional node references and optional string
 /// offsets.
