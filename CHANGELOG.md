@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/sdf-labs/dbt-asdl/compare/v0.2.0...v0.3.0) - 2026-10-21
+
+### Other
+
+- Bump RUNTIME_ABI_VERSION. ([#19](https://github.com/sdf-labs/dbt-asdl/pull/19))
+- Optimize host-side Tree, Node, SeqView, and Value layouts ([#18](https://github.com/sdf-labs/dbt-asdl/pull/18))
+- Optimize flat ABI schema descriptor and header layouts ([#17](https://github.com/sdf-labs/dbt-asdl/pull/17))
+- Fold FlatNode into packed u32 sum references ([#16](https://github.com/sdf-labs/dbt-asdl/pull/16))
+- Optimize flat ABI optional scalar layouts ([#14](https://github.com/sdf-labs/dbt-asdl/pull/14))
+
 ## [0.2.0](https://github.com/sdf-labs/dbt-asdl/compare/v0.1.0...v0.2.0) - 2026-10-21
 
 ### Other
