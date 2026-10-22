@@ -1,4 +1,5 @@
 #include <dbt_asdl/flat_runtime.hpp>
+#include "gen_flat.hpp"
 
 #include <cstdlib>
 #include <cstring>
@@ -9,28 +10,22 @@
 namespace {
 
 using namespace dbt_asdl;
+using namespace mini_sql;
 
-struct CppDataTypeInt {
-    uint32_t span;
-    uint8_t nullable;
-    OptBool unsigned_;
-    OptByte width;
-};
-
-struct CppDataTypeBool {
-    uint32_t span;
-    uint8_t nullable;
-};
-
-struct CppWhenThen {
-    uint32_t when;
-    uint32_t then;
-    uint8_t op;
-};
-
-static_assert(sizeof(CppDataTypeInt) == 8 && alignof(CppDataTypeInt) == 4);
-static_assert(sizeof(CppDataTypeBool) == 8 && alignof(CppDataTypeBool) == 4);
-static_assert(sizeof(CppWhenThen) == 12 && alignof(CppWhenThen) == 4);
+static_assert(sizeof(CodeLocation) == 16 && alignof(CodeLocation) == alignof(int64_t));
+static_assert(sizeof(Span) == 8 && alignof(Span) == 4);
+static_assert(sizeof(data_type::Int) == 8 && alignof(data_type::Int) == 4);
+static_assert(sizeof(data_type::Bool) == 8 && alignof(data_type::Bool) == 4);
+static_assert(sizeof(literal::Number) == 12 && alignof(literal::Number) == 4);
+static_assert(sizeof(literal::String) == 12 && alignof(literal::String) == 4);
+static_assert(sizeof(literal::Null) == 4 && alignof(literal::Null) == 4);
+static_assert(sizeof(WhenThen) == 12 && alignof(WhenThen) == 4);
+static_assert(sizeof(expr::Identifier) == 12 && alignof(expr::Identifier) == 4);
+static_assert(sizeof(expr::Literal) == 8 && alignof(expr::Literal) == 4);
+static_assert(sizeof(expr::BinaryOp) == 16 && alignof(expr::BinaryOp) == 4);
+static_assert(sizeof(expr::Case) == 20 && alignof(expr::Case) == 4);
+static_assert(sizeof(expr::Cast) == 20 && alignof(expr::Cast) == 4);
+static_assert(sizeof(File) == 16 && alignof(File) == 4);
 
 std::optional<Node> child_node(Node node, std::string_view field_name) {
     auto v = node.field(field_name);
@@ -119,6 +114,119 @@ void walk_node_recursive(Node node, WalkStats& stats) {
     }
 }
 
+
+void walk_code_location_typed(const CodeLocation* loc, WalkStats& stats) {
+    stats.node_count += 1;
+    if (auto idx = loc->index.get()) {
+        stats.location_index_sum += *idx;
+    }
+}
+
+void walk_span_typed(TreeView tree, const Span* sp, WalkStats& stats) {
+    stats.node_count += 1;
+    walk_code_location_typed(as_code_location(tree, sp->start), stats);
+    walk_code_location_typed(as_code_location(tree, sp->end), stats);
+}
+
+void walk_data_type_typed(TreeView tree, DataTypeView dt, WalkStats& stats) {
+    stats.node_count += 1;
+    switch (*dt.tag()) {
+        case DataTypeTag::Int:
+            walk_span_typed(tree, as_span(tree, dt.as_int()->span), stats);
+            break;
+        case DataTypeTag::Bool:
+            walk_span_typed(tree, as_span(tree, dt.as_bool()->span), stats);
+            break;
+    }
+}
+
+void walk_literal_typed(TreeView tree, LiteralView lit, WalkStats& stats) {
+    stats.node_count += 1;
+    switch (*lit.tag()) {
+        case LiteralTag::Number: {
+            const literal::Number* r = lit.as_number();
+            walk_span_typed(tree, as_span(tree, r->span), stats);
+            std::string s(*tree.str(r->text));
+            stats.number_sum += std::strtoll(s.c_str(), nullptr, 10);
+            break;
+        }
+        case LiteralTag::String:
+            walk_span_typed(tree, as_span(tree, lit.as_string()->span), stats);
+            break;
+        case LiteralTag::Null:
+            walk_span_typed(tree, as_span(tree, lit.as_null()->span), stats);
+            break;
+    }
+}
+
+void walk_expr_typed(TreeView tree, ExprView e, WalkStats& stats);
+
+void walk_when_then_typed(TreeView tree, const WhenThen* wt, WalkStats& stats) {
+    stats.node_count += 1;
+    stats.when_then_count += 1;
+    walk_expr_typed(tree, *as_expr(tree, wt->when), stats);
+    walk_expr_typed(tree, *as_expr(tree, wt->then), stats);
+}
+
+void walk_expr_typed(TreeView tree, ExprView e, WalkStats& stats) {
+    stats.node_count += 1;
+    switch (*e.tag()) {
+        case ExprTag::Identifier: {
+            const expr::Identifier* r = e.as_identifier();
+            walk_span_typed(tree, as_span(tree, r->span), stats);
+            stats.ident_part_count += static_cast<uint32_t>(tree.seq("identifier", r->parts)->len());
+            break;
+        }
+        case ExprTag::Literal: {
+            const expr::Literal* r = e.as_literal();
+            walk_span_typed(tree, as_span(tree, r->span), stats);
+            walk_literal_typed(tree, *as_literal(tree, r->value), stats);
+            break;
+        }
+        case ExprTag::BinaryOp: {
+            stats.binary_op_count += 1;
+            const expr::BinaryOp* r = e.as_binary_op();
+            walk_span_typed(tree, as_span(tree, r->span), stats);
+            walk_expr_typed(tree, *as_expr(tree, r->left), stats);
+            walk_expr_typed(tree, *as_expr(tree, r->right), stats);
+            break;
+        }
+        case ExprTag::Case: {
+            const expr::Case* r = e.as_case();
+            walk_span_typed(tree, as_span(tree, r->span), stats);
+            if (auto op = as_expr(tree, r->operand)) {
+                walk_expr_typed(tree, *op, stats);
+            }
+            for (Value item : *tree.seq("when_then", r->cases)) {
+                walk_when_then_typed(tree, as_when_then(*item.as_node()), stats);
+            }
+            if (auto el = as_expr(tree, r->else_)) {
+                walk_expr_typed(tree, *el, stats);
+            }
+            break;
+        }
+        case ExprTag::Cast: {
+            stats.cast_count += 1;
+            const expr::Cast* r = e.as_cast();
+            walk_span_typed(tree, as_span(tree, r->span), stats);
+            walk_expr_typed(tree, *as_expr(tree, r->e), stats);
+            walk_data_type_typed(tree, *as_data_type(tree, r->to), stats);
+            stats.note_count += static_cast<uint32_t>(tree.seq("string", r->notes)->len());
+            break;
+        }
+    }
+}
+
+void walk_file_typed(TreeView tree, const File* f, WalkStats& stats) {
+    stats.node_count += 1;
+    for (Value item : *tree.seq("expr", f->exprs)) {
+        walk_expr_typed(tree, *as_expr(*item.as_node()), stats);
+    }
+    for (Value item : *tree.seq("span", f->spans)) {
+        walk_span_typed(tree, as_span(*item.as_node()), stats);
+    }
+}
+
 } // namespace
 
 extern "C" {
@@ -167,7 +275,8 @@ int32_t cpp_inspect_mini_sql_tree(
     Tree tree = std::move(*tree_opt);
 
     std::string schema_err;
-    if (!validate_schema(*tree.raw()->schema, 1, &schema_err)) {
+    if (!validate_schema(*tree.raw()->schema, ABI_VERSION, &schema_err) ||
+        tree.schema_hash() != SCHEMA_HASH) {
         return 2;
     }
 
@@ -182,13 +291,14 @@ int32_t cpp_inspect_mini_sql_tree(
     if (root.field("nonexistent").has_value()) {
         return 4;
     }
-    if (root.as_product<CppWhenThen>("when_then") != nullptr) {
+    if (as_when_then(root) != nullptr) {
         return 5;
     }
-    if (root.as_payload<CppDataTypeInt>("data_type", 0) != nullptr) {
+    if (as_data_type(root).has_value()) {
         return 6;
     }
-    if (root.fields().len() != 2 || !root.field_at(0).has_value() ||
+    const File* file_rec = as_file(root);
+    if (file_rec == nullptr || root.fields().len() != 2 || !root.field_at(0).has_value() ||
         root.field_at(2).has_value()) {
         return 7;
     }
@@ -198,7 +308,8 @@ int32_t cpp_inspect_mini_sql_tree(
         return 8;
     }
     SeqView exprs = *exprs_val->as_seq();
-    if (exprs.is_empty() || exprs.len() != 2 || exprs.get(2).has_value()) {
+    if (exprs.is_empty() || exprs.len() != 2 || file_rec->exprs.len != 2 ||
+        exprs.get(2).has_value()) {
         return 9;
     }
     if (exprs.elem_type() != tree.type_by_name("expr")) {
@@ -211,21 +322,22 @@ int32_t cpp_inspect_mini_sql_tree(
         return 11;
     }
     Node cast0 = *cast0_opt;
-    if (cast0.type_name() != "expr" || cast0.kind() != "Cast") {
+    auto cast0_view = as_expr(cast0);
+    if (!cast0_view || cast0_view->tag() != ExprTag::Cast || cast0.kind() != "Cast") {
         return 12;
     }
-    if (cast0.kind_id() != tree.kind_by_name("Cast") ||
+    const expr::Cast* cast0_rec = cast0_view->as_cast();
+    if (cast0_rec == nullptr || cast0.kind_id() != tree.kind_by_name("Cast") ||
         tree.kind_by_name("NoSuchCtor").has_value()) {
         return 13;
     }
 
-    auto notes_val = cast0.field("notes");
-    if (!notes_val || !notes_val->is_seq()) {
+    auto notes_seq = tree.seq("string", cast0_rec->notes);
+    if (!notes_seq) {
         return 14;
     }
-    SeqView notes = *notes_val->as_seq();
     std::vector<std::string_view> note_strs;
-    for (Value v : notes) {
+    for (Value v : *notes_seq) {
         auto s = v.as_str();
         if (!s) {
             return 15;
@@ -242,7 +354,8 @@ int32_t cpp_inspect_mini_sql_tree(
         return 17;
     }
     Node to0 = *to0_opt;
-    if (to0.type_name() != "data_type" || to0.kind() != "Int") {
+    auto dt0_view = as_data_type(tree, cast0_rec->to);
+    if (!dt0_view || dt0_view->tag() != DataTypeTag::Int || to0.kind() != "Int") {
         return 18;
     }
     if (to0.field("nullable")->as_bool() != true ||
@@ -250,11 +363,11 @@ int32_t cpp_inspect_mini_sql_tree(
         to0.field("width")->as_byte() != 64) {
         return 19;
     }
-    if (to0.as_payload<CppDataTypeBool>("data_type", 1) != nullptr) {
+    if (dt0_view->as_bool() != nullptr) {
         return 20;
     }
-    const CppDataTypeInt* dt0 = to0.as_payload<CppDataTypeInt>("data_type", 0);
-    if (dt0 == nullptr || dt0->span == NONE_U32 || dt0->nullable != 1 ||
+    const data_type::Int* dt0 = dt0_view->as_int();
+    if (dt0 == nullptr || dt0->span.is_none() || dt0->nullable != 1 ||
         dt0->unsigned_.get() != false || dt0->width.get() != 64) {
         return 21;
     }
@@ -262,17 +375,19 @@ int32_t cpp_inspect_mini_sql_tree(
     out->dt0_unsigned = static_cast<uint8_t>(*dt0->unsigned_.get() ? 1 : 0);
     out->dt0_width = *dt0->width.get();
 
-    auto case_opt = child_node(cast0, "e");
-    if (!case_opt || case_opt->kind() != "Case") {
+    auto case_view = as_expr(tree, cast0_rec->e);
+    if (!case_view || case_view->tag() != ExprTag::Case) {
         return 22;
     }
-    Node case_node = *case_opt;
+    const expr::Case* case_rec = case_view->as_case();
+    Node case_node = case_view->node();
 
-    auto operand_opt = child_node(case_node, "operand");
-    if (!operand_opt || operand_opt->kind() != "Identifier") {
+    auto operand_view = as_expr(tree, case_rec->operand);
+    if (!operand_view || operand_view->tag() != ExprTag::Identifier) {
         return 23;
     }
-    SeqView parts = *operand_opt->field("parts")->as_seq();
+    const expr::Identifier* ident_rec = operand_view->as_identifier();
+    SeqView parts = *tree.seq("identifier", ident_rec->parts);
     std::vector<std::string_view> part_strs;
     for (Value v : parts) {
         part_strs.push_back(*v.as_str());
@@ -283,7 +398,7 @@ int32_t cpp_inspect_mini_sql_tree(
     }
     out->ident_part_count = static_cast<uint32_t>(part_strs.size());
 
-    SeqView cases = *case_node.field("cases")->as_seq();
+    SeqView cases = *tree.seq("when_then", case_rec->cases);
     if (cases.len() != 2) {
         return 25;
     }
@@ -297,31 +412,33 @@ int32_t cpp_inspect_mini_sql_tree(
     if (!wt0_op || tree.simple_variant_name(wt0_op->type_index, wt0_op->tag) != "Add") {
         return 27;
     }
-    const CppWhenThen* wt0_proj = wt0.as_product<CppWhenThen>("when_then");
-    if (wt0_proj == nullptr || wt0_proj->when == NONE_U32 || wt0_proj->then == NONE_U32 ||
-        wt0_proj->op != 0) {
+    const WhenThen* wt0_proj = as_when_then(wt0);
+    if (wt0_proj == nullptr || wt0_proj->when.is_none() || wt0_proj->then.is_none() ||
+        bin_op_from_u8(wt0_proj->op) != BinOp::Add) {
         return 28;
     }
 
-    Node when0 = *child_node(wt0, "when");
-    if (when0.kind() != "BinaryOp") {
+    auto when0_view = as_expr(tree, wt0_proj->when);
+    if (!when0_view || when0_view->tag() != ExprTag::BinaryOp) {
         return 29;
     }
-    auto bin_op = when0.field("op")->as_simple_sum();
-    if (!bin_op || tree.simple_variant_name(bin_op->type_index, bin_op->tag) != "Eq") {
+    const expr::BinaryOp* bin_rec = when0_view->as_binary_op();
+    if (bin_rec == nullptr || bin_op_from_u8(bin_rec->op) != BinOp::Eq) {
         return 30;
     }
-    Node right0 = *child_node(when0, "right");
-    Node num_lit = *child_node(right0, "value");
-    if (num_lit.kind() != "Number") {
+    auto right0_lit_expr = as_expr(tree, bin_rec->right)->as_literal();
+    auto num_lit_view = as_literal(tree, right0_lit_expr->value);
+    if (!num_lit_view || num_lit_view->tag() != LiteralTag::Number) {
         return 31;
     }
-    std::string num_text(*num_lit.field("text")->as_str());
+    const literal::Number* num_rec = num_lit_view->as_number();
+    std::string num_text(*tree.str(num_rec->text));
     out->number_value = static_cast<int32_t>(std::strtol(num_text.c_str(), nullptr, 10));
 
-    Node then0 = *child_node(wt0, "then");
-    Node str_lit = *child_node(then0, "value");
-    if (str_lit.kind() != "String" || str_lit.field("value")->as_str() != "ok\n\"1\"") {
+    auto then0_lit_expr = as_expr(tree, wt0_proj->then)->as_literal();
+    auto str_lit_view = as_literal(tree, then0_lit_expr->value);
+    const literal::String* str_rec = str_lit_view->as_string();
+    if (str_rec == nullptr || tree.str(str_rec->value) != "ok\n\"1\"") {
         return 32;
     }
 
@@ -329,54 +446,57 @@ int32_t cpp_inspect_mini_sql_tree(
     if (!wt1.field("op")->is_none()) {
         return 33;
     }
-    const CppWhenThen* wt1_proj = wt1.as_product<CppWhenThen>("when_then");
-    if (wt1_proj == nullptr || wt1_proj->op != NONE_U8) {
+    const WhenThen* wt1_proj = as_when_then(wt1);
+    if (wt1_proj == nullptr || wt1_proj->op != NONE_U8 ||
+        bin_op_from_u8(wt1_proj->op).has_value()) {
         return 34;
     }
 
-    Node else_node = *child_node(case_node, "else");
-    Node null_lit = *child_node(else_node, "value");
-    if (null_lit.kind() != "Null") {
+    auto else_lit_expr = as_expr(tree, case_rec->else_)->as_literal();
+    auto null_lit_view = as_literal(tree, else_lit_expr->value);
+    if (!null_lit_view || null_lit_view->tag() != LiteralTag::Null ||
+        null_lit_view->as_null() == nullptr) {
         return 35;
     }
 
     Node cast1 = *exprs[1].as_node();
     Node to1 = *child_node(cast1, "to");
-    if (to1.as_payload<CppDataTypeInt>("data_type", 0) != nullptr) {
+    auto dt1_view = as_data_type(to1);
+    if (!dt1_view || dt1_view->as_int() != nullptr) {
         return 36;
     }
-    const CppDataTypeBool* dt1 = to1.as_payload<CppDataTypeBool>("data_type", 1);
+    const data_type::Bool* dt1 = dt1_view->as_bool();
     if (dt1 == nullptr || dt1->nullable != 0) {
         return 37;
     }
     out->dt1_nullable = dt1->nullable;
 
-    SeqView spans = *root.field("spans")->as_seq();
+    SeqView spans = *tree.seq("span", file_rec->spans);
     if (spans.len() != 2) {
         return 38;
     }
     out->span_count = static_cast<uint32_t>(spans.len());
 
-    Node span0 = *spans[0].as_node();
-    Node start0 = *child_node(span0, "start");
-    Node end0 = *child_node(span0, "end");
-    if (start0.field("lineno")->as_int() != 1 || start0.field("col_offset")->as_int() != 0 ||
-        start0.field("index")->as_long() != 0) {
+    const Span* span0 = as_span(*spans[0].as_node());
+    const CodeLocation* start0 = as_code_location(tree, span0->start);
+    const CodeLocation* end0 = as_code_location(tree, span0->end);
+    if (start0 == nullptr || end0 == nullptr || start0->lineno.get() != 1 ||
+        start0->col_offset.get() != 0 || start0->index.get() != 0) {
         return 39;
     }
-    out->span0_end_index = *end0.field("index")->as_long();
+    out->span0_end_index = *end0->index.get();
 
-    Node span1 = *spans[1].as_node();
-    Node start1 = *child_node(span1, "start");
-    Node end1 = *child_node(span1, "end");
-    if (!start1.field("lineno")->is_none() || !start1.field("col_offset")->is_none() ||
-        !start1.field("index")->is_none()) {
+    const Span* span1 = as_span(*spans[1].as_node());
+    const CodeLocation* start1 = as_code_location(tree, span1->start);
+    const CodeLocation* end1 = as_code_location(tree, span1->end);
+    if (start1 == nullptr || end1 == nullptr || !start1->lineno.is_none() ||
+        !start1->col_offset.is_none() || !start1->index.is_none()) {
         return 40;
     }
-    out->span1_end_index = *end1.field("index")->as_long();
+    out->span1_end_index = *end1->index.get();
 
     std::string sexpr = tree.to_sexpr();
-    if (sexpr != root.to_sexpr()) {
+    if (sexpr != root.to_sexpr() || case_node.kind() != "Case") {
         return 41;
     }
     write_out_str(sexpr, sexpr_buf, sexpr_cap, sexpr_len);
@@ -403,6 +523,19 @@ int32_t cpp_walk_and_summarize(
 
     WalkStats stats{};
     walk_node_recursive(tree.root(), stats);
+
+    WalkStats typed_stats{};
+    walk_file_typed(tree, as_file(tree.root()), typed_stats);
+    if (typed_stats.node_count != stats.node_count ||
+        typed_stats.ident_part_count != stats.ident_part_count ||
+        typed_stats.number_sum != stats.number_sum ||
+        typed_stats.binary_op_count != stats.binary_op_count ||
+        typed_stats.cast_count != stats.cast_count ||
+        typed_stats.when_then_count != stats.when_then_count ||
+        typed_stats.note_count != stats.note_count ||
+        typed_stats.location_index_sum != stats.location_index_sum) {
+        return 3;
+    }
 
     out->node_count = stats.node_count;
     out->ident_part_count = stats.ident_part_count;

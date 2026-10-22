@@ -919,6 +919,17 @@ public:
         return reinterpret_cast<const T*>(res->first);
     }
 
+    std::optional<std::string_view> str(FlatStr s) const noexcept {
+        if (s.is_none()) {
+            return std::nullopt;
+        }
+        return detail::str_at(raw_, s);
+    }
+
+    inline std::optional<SeqView> seq(std::string_view elem_type_name, FlatSeq s) const noexcept;
+
+    inline std::optional<Node> node(std::string_view type_name, uint32_t index) const noexcept;
+
     inline std::string to_sexpr() const;
 
 protected:
@@ -1309,6 +1320,31 @@ inline Value read_field(
 
 inline Node TreeView::root() const noexcept {
     return Node(raw_, raw_->schema->root_type, raw_->root_index);
+}
+
+inline std::optional<SeqView> TreeView::seq(
+    std::string_view elem_type_name,
+    FlatSeq s
+) const noexcept {
+    auto ty = type_by_name(elem_type_name);
+    if (!ty || raw_->schema->types[*ty].seq_section == NONE_U16) {
+        return std::nullopt;
+    }
+    return SeqView(raw_, *ty, s);
+}
+
+inline std::optional<Node> TreeView::node(
+    std::string_view type_name,
+    uint32_t index
+) const noexcept {
+    if (index == NONE_U32) {
+        return std::nullopt;
+    }
+    auto ty = type_by_name(type_name);
+    if (!ty) {
+        return std::nullopt;
+    }
+    return Node(raw_, *ty, index);
 }
 
 inline std::optional<Value> Node::field(std::string_view name) const noexcept {

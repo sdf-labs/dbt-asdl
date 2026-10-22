@@ -41,6 +41,8 @@ fn main() {
         std::fs::create_dir_all(staged_hpp.parent().unwrap())
             .expect("failed to create staged C++ include directory");
         std::fs::copy(&hpp_path, &staged_hpp).expect("failed to stage flat_runtime.hpp");
+        flat::generate_cpp_flat(&asdl_path, include_dir.join("gen_flat.hpp"))
+            .expect("failed to generate flat C++ AST from mini_sql.asdl");
 
         cc::Build::new()
             .cpp(true)
