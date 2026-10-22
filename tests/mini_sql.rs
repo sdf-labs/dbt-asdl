@@ -1422,3 +1422,27 @@ fn flat_cpp_shim_summarizes_lowered_arena_and_owned_trees() {
 
     assert_eq!(unsafe { cpp_test_abi_and_primitives() }, 0);
 }
+
+#[test]
+fn cpp_runtime_header_emission_via_api_and_cli() {
+    let base_dir = std::env::temp_dir().join(format!("dbt_asdl_cpp_emit_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base_dir);
+
+    let api_include = base_dir.join("api_include");
+    let written = dbt_asdl::codegen::cpp::write_runtime_header(&api_include)
+        .expect("write_runtime_header succeeds");
+    assert_eq!(written, api_include.join("dbt_asdl/flat_runtime.hpp"));
+    assert_eq!(std::fs::read_to_string(&written).unwrap(), dbt_asdl::FLAT_RUNTIME_HPP);
+
+    let cli_include = base_dir.join("cli_include");
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_dbt-asdl"))
+        .arg("--emit-cpp-runtime")
+        .arg(&cli_include)
+        .status()
+        .expect("failed to run dbt-asdl CLI");
+    assert!(status.success());
+    let cli_header = cli_include.join("dbt_asdl/flat_runtime.hpp");
+    assert_eq!(std::fs::read_to_string(&cli_header).unwrap(), dbt_asdl::FLAT_RUNTIME_HPP);
+
+    let _ = std::fs::remove_dir_all(&base_dir);
+}

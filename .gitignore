@@ -3,6 +3,9 @@ Cargo.lock
 /target
 /tests/**/target
 
+/build
+/.cache
+
 /difftest
 /perftest
 

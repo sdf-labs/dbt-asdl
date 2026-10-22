@@ -1,0 +1,7 @@
+# Fallback flags for clangd when build/compile_commands.json does not exist.
+# Generate the exact flags with:
+#   cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+CompileFlags:
+  Add:
+    - -std=c++17
+    - -I../include

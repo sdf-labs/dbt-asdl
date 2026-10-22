@@ -49,6 +49,18 @@ fn main() {
 }
 ```
 
+## Development
+
+The C++ runtime header is `include/dbt_asdl/flat_runtime.hpp`. The C++ FFI test shim is `tests/flat_cpp.cpp`. Cargo compiles the shim through `build.rs` and the `cc` crate.
+
+To give `clangd` the exact flags for the shim, generate a compilation database:
+
+```sh
+cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+```
+
+`tests/.clangd` holds fallback flags for the case where the database is absent.
+
 ## License
 
 This crate uses the Apache-2.0 license.

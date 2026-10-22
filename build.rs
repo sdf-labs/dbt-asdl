@@ -31,15 +31,21 @@ fn main() {
     flat::generate_flat(&asdl_path, out_dir.join("gen_flat.rs"))
         .expect("failed to generate flat Rust AST from mini_sql.asdl");
 
-    let hpp_path = manifest.join("src/flat_runtime.hpp");
+    let hpp_path = manifest.join("include/dbt_asdl/flat_runtime.hpp");
     let cpp_path = manifest.join("tests/flat_cpp.cpp");
     println!("cargo:rerun-if-changed={}", hpp_path.display());
     println!("cargo:rerun-if-changed={}", cpp_path.display());
     if cpp_path.exists() {
+        let include_dir = out_dir.join("cpp_include");
+        let staged_hpp = include_dir.join("dbt_asdl/flat_runtime.hpp");
+        std::fs::create_dir_all(staged_hpp.parent().unwrap())
+            .expect("failed to create staged C++ include directory");
+        std::fs::copy(&hpp_path, &staged_hpp).expect("failed to stage flat_runtime.hpp");
+
         cc::Build::new()
             .cpp(true)
             .std("c++17")
-            .include(manifest.join("src"))
+            .include(&include_dir)
             .file(&cpp_path)
             .compile("flat_cpp_shim");
     }
