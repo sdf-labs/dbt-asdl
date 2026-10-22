@@ -22,5 +22,8 @@ ustr = "1.1.0"
 bumpalo = { version = "3.20.3", features = ["collections"] }
 insta = "1.49.0"
 
+[build-dependencies]
+cc = "1"
+
 [lints.rust]
 missing_docs = "warn"
