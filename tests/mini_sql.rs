@@ -602,8 +602,20 @@ fn views_api_runs_identically_over_arena_and_owned_trees() {
     inspect_case_tree(file_ref.exprs().get(0).unwrap());
 }
 
+pub mod ast {
+    pub use crate::gen_views::*;
+    pub use crate::shared::*;
+}
+
 mod gen_flat {
     include!(concat!(env!("OUT_DIR"), "/gen_flat.rs"));
+    include!(concat!(env!("OUT_DIR"), "/gen_convert.rs"));
+
+    pub fn lower_file_with_builder(root: crate::ast::FileRef<'_>) -> *mut dbt_asdl::FlatTree {
+        let mut b = TreeBuilder::new();
+        let file_ref = lower_file(&mut b, root);
+        b.finish(file_ref)
+    }
 }
 
 fn mini_sql_dialect_cdylib() -> std::path::PathBuf {
@@ -978,4 +990,435 @@ fn flat_abi_version_drift_and_incompatible_version_refusal() {
     assert_eq!(dt_int.nullable, 1);
     assert_eq!(dt_int.unsigned.get(), Some(true));
     assert_eq!(dt_int.width.get(), Some(32));
+}
+
+#[repr(C)]
+#[derive(Debug, Default, PartialEq, Eq)]
+struct CppTreeReport {
+    runtime_abi_version: u32,
+    abi_version: u32,
+    schema_hash: u64,
+    expr_count: u32,
+    span_count: u32,
+    note_count: u32,
+    ident_part_count: u32,
+    case_count: u32,
+    number_value: i32,
+    dt0_nullable: u8,
+    dt0_unsigned: u8,
+    dt0_width: u8,
+    dt1_nullable: u8,
+    span0_end_index: i64,
+    span1_end_index: i64,
+}
+
+#[repr(C)]
+#[derive(Debug, Default, PartialEq, Eq)]
+struct CppWalkSummary {
+    node_count: u32,
+    ident_part_count: u32,
+    number_sum: i64,
+    binary_op_count: u32,
+    cast_count: u32,
+    when_then_count: u32,
+    note_count: u32,
+    location_index_sum: i64,
+}
+
+unsafe extern "C" {
+    fn cpp_inspect_mini_sql_tree(
+        raw: *mut dbt_asdl::FlatTree,
+        out: *mut CppTreeReport,
+        sexpr_buf: *mut u8,
+        sexpr_cap: usize,
+        sexpr_len: *mut usize,
+    ) -> i32;
+
+    fn cpp_walk_and_summarize(
+        raw: *mut dbt_asdl::FlatTree,
+        out: *mut CppWalkSummary,
+        sexpr_buf: *mut u8,
+        sexpr_cap: usize,
+        sexpr_len: *mut usize,
+    ) -> i32;
+
+    fn cpp_test_abi_and_primitives() -> i32;
+}
+
+fn flat_span(b: &mut gen_flat::TreeBuilder, start: i64, end: i64) -> gen_flat::SpanRef {
+    use dbt_asdl::{OptInt, OptLong};
+    let s = b.push_code_location(gen_flat::CodeLocation {
+        lineno: OptInt::from(Some(1)),
+        col_offset: OptInt::from(Some(start as i32)),
+        index: OptLong::from(Some(start)),
+    });
+    let e = b.push_code_location(gen_flat::CodeLocation {
+        lineno: OptInt::from(Some(1)),
+        col_offset: OptInt::from(Some(end as i32)),
+        index: OptLong::from(Some(end)),
+    });
+    b.push_span(gen_flat::Span { start: s, end: e })
+}
+
+fn build_flat_tree_via_builder() -> *mut dbt_asdl::FlatTree {
+    use dbt_asdl::{NONE_U8, OptBool, OptByte, OptInt, OptLong};
+    use gen_flat::{CodeLocation, File, Span, TreeBuilder, WhenThen, data_type, expr, literal};
+
+    let mut b = TreeBuilder::new();
+
+    let span_ident = flat_span(&mut b, 0, 8);
+    let p_db = b.push_str("db");
+    let p_users = b.push_str("users");
+    let p_id = b.push_str("id");
+    let parts = b.push_identifier_seq(&[p_db, p_users, p_id]);
+    let ident_expr = b.push_expr_identifier(expr::Identifier {
+        span: span_ident,
+        parts,
+    });
+
+    let span_num_lit = flat_span(&mut b, 11, 13);
+    let text_42 = b.push_str("42");
+    let num_lit = b.push_literal_number(literal::Number {
+        span: span_num_lit,
+        text: text_42,
+    });
+    let span_num_expr = flat_span(&mut b, 11, 13);
+    let num_expr = b.push_expr_literal(expr::Literal {
+        span: span_num_expr,
+        value: num_lit,
+    });
+
+    let span_cond = flat_span(&mut b, 0, 13);
+    let cond = b.push_expr_binary_op(expr::BinaryOp {
+        span: span_cond,
+        left: ident_expr,
+        op: BinOp::Eq as u8,
+        right: num_expr,
+    });
+
+    let span_str_lit = flat_span(&mut b, 19, 25);
+    let val_ok = b.push_str("ok\n\"1\"");
+    let str_lit = b.push_literal_string(literal::String {
+        span: span_str_lit,
+        value: val_ok,
+    });
+    let span_then = flat_span(&mut b, 19, 25);
+    let then_expr = b.push_expr_literal(expr::Literal {
+        span: span_then,
+        value: str_lit,
+    });
+
+    let span_null_lit = flat_span(&mut b, 31, 35);
+    let null_lit = b.push_literal_null(literal::Null {
+        span: span_null_lit,
+    });
+    let span_else = flat_span(&mut b, 31, 35);
+    let else_expr = b.push_expr_literal(expr::Literal {
+        span: span_else,
+        value: null_lit,
+    });
+
+    let wt1 = b.push_when_then(WhenThen {
+        when: cond,
+        then: then_expr,
+        op: BinOp::Add as u8,
+    });
+    let wt2 = b.push_when_then(WhenThen {
+        when: ident_expr,
+        then: num_expr,
+        op: NONE_U8,
+    });
+    let cases = b.push_when_then_seq(&[wt1, wt2]);
+
+    let span_case = flat_span(&mut b, 0, 40);
+    let case_expr = b.push_expr_case(expr::Case {
+        span: span_case,
+        operand: ident_expr,
+        cases,
+        r#else: else_expr,
+    });
+
+    let span_int_ty = flat_span(&mut b, 44, 50);
+    let int_ty = b.push_data_type_int(data_type::Int {
+        span: span_int_ty,
+        nullable: 1,
+        unsigned: OptBool::from(Some(false)),
+        width: OptByte::from(Some(64)),
+    });
+    let n_narrow = b.push_str("narrow");
+    let n_checked = b.push_str("checked");
+    let notes_int = b.push_string_seq(&[n_narrow, n_checked]);
+    let span_cast_int = flat_span(&mut b, 0, 51);
+    let cast_int = b.push_expr_cast(expr::Cast {
+        span: span_cast_int,
+        e: case_expr,
+        to: int_ty,
+        notes: notes_int,
+    });
+
+    let span_bool_ty = flat_span(&mut b, 60, 64);
+    let bool_ty = b.push_data_type_bool(data_type::Bool {
+        span: span_bool_ty,
+        nullable: 0,
+    });
+    let notes_bool = b.push_string_seq(&[]);
+    let span_cast_bool = flat_span(&mut b, 55, 65);
+    let cast_bool = b.push_expr_cast(expr::Cast {
+        span: span_cast_bool,
+        e: ident_expr,
+        to: bool_ty,
+        notes: notes_bool,
+    });
+
+    let exprs = b.push_expr_seq(&[cast_int, cast_bool]);
+
+    let file_span_0 = flat_span(&mut b, 0, 65);
+    let extra_start = b.push_code_location(CodeLocation {
+        lineno: OptInt::NONE,
+        col_offset: OptInt::NONE,
+        index: OptLong::NONE,
+    });
+    let extra_end = b.push_code_location(CodeLocation {
+        lineno: OptInt::from(Some(2)),
+        col_offset: OptInt::from(Some(10)),
+        index: OptLong::from(Some(80)),
+    });
+    let file_span_1 = b.push_span(Span {
+        start: extra_start,
+        end: extra_end,
+    });
+    let spans = b.push_span_seq(&[file_span_0, file_span_1]);
+
+    let root = b.push_file(File { exprs, spans });
+    b.finish(root)
+}
+
+fn build_flat_tree_via_lower_file() -> *mut dbt_asdl::FlatTree {
+    let b = Bump::new();
+    let ident_expr = b.alloc(arena::Expr::Identifier(b.alloc(arena::expr::Identifier {
+        span: span_at(0, 8),
+        parts: bvec![
+            in &b;
+            Identifier::from("db"),
+            Identifier::from("users"),
+            Identifier::from("id")
+        ],
+    })));
+    let num_lit = b.alloc(arena::Literal::Number(b.alloc(arena::literal::Number {
+        span: span_at(11, 13),
+        text: b.alloc_str("42"),
+    })));
+    let num_expr = b.alloc(arena::Expr::Literal(b.alloc(arena::expr::Literal {
+        span: span_at(11, 13),
+        value: num_lit,
+    })));
+    let cond = b.alloc(arena::Expr::BinaryOp(b.alloc(arena::expr::BinaryOp {
+        span: span_at(0, 13),
+        left: ident_expr,
+        op: BinOp::Eq,
+        right: num_expr,
+    })));
+
+    let str_lit = b.alloc(arena::Literal::String(b.alloc(arena::literal::String {
+        span: span_at(19, 25),
+        value: b.alloc_str("ok\n\"1\""),
+    })));
+    let then_expr = b.alloc(arena::Expr::Literal(b.alloc(arena::expr::Literal {
+        span: span_at(19, 25),
+        value: str_lit,
+    })));
+
+    let null_lit = b.alloc(arena::Literal::Null(b.alloc(arena::literal::Null {
+        span: span_at(31, 35),
+    })));
+    let else_expr = b.alloc(arena::Expr::Literal(b.alloc(arena::expr::Literal {
+        span: span_at(31, 35),
+        value: null_lit,
+    })));
+
+    let wt1 = b.alloc(arena::WhenThen {
+        when: cond,
+        then: then_expr,
+        op: Some(BinOp::Add),
+    });
+    let wt2 = b.alloc(arena::WhenThen {
+        when: ident_expr,
+        then: num_expr,
+        op: None,
+    });
+
+    let case_expr = b.alloc(arena::Expr::Case(b.alloc(arena::expr::Case {
+        span: span_at(0, 40),
+        operand: Some(ident_expr),
+        cases: bvec![in &b; &*wt1, &*wt2],
+        r#else: Some(else_expr),
+    })));
+
+    let int_ty = b.alloc(arena::DataType::Int(b.alloc(arena::data_type::Int {
+        span: span_at(44, 50),
+        nullable: true,
+        unsigned: Some(false),
+        width: Some(64),
+    })));
+    let cast_int = b.alloc(arena::Expr::Cast(b.alloc(arena::expr::Cast {
+        span: span_at(0, 51),
+        e: case_expr,
+        to: int_ty,
+        notes: bvec![in &b; &*b.alloc_str("narrow"), &*b.alloc_str("checked")],
+    })));
+
+    let bool_ty = b.alloc(arena::DataType::Bool(b.alloc(arena::data_type::Bool {
+        span: span_at(60, 64),
+        nullable: false,
+    })));
+    let cast_bool = b.alloc(arena::Expr::Cast(b.alloc(arena::expr::Cast {
+        span: span_at(55, 65),
+        e: ident_expr,
+        to: bool_ty,
+        notes: BVec::new_in(&b),
+    })));
+
+    let extra_span = Span {
+        start: loc(None, None, None),
+        end: loc(Some(2), Some(10), Some(80)),
+    };
+
+    let file = b.alloc(arena::File {
+        exprs: bvec![in &b; &*cast_int, &*cast_bool],
+        spans: bvec![in &b; span_at(0, 65), extra_span],
+    });
+    gen_flat::lower_file_with_builder(FileRef::Arena(file))
+}
+
+#[test]
+fn flat_cpp_shim_walks_trees_from_builder_and_lower_file() {
+    let expected_sexpr = concat!(
+        "(File",
+        " (exprs [",
+        "(Cast",
+        " (e (Case",
+        " (operand (Identifier (parts [\"db\" \"users\" \"id\"])))",
+        " (cases [",
+        "(WhenThen",
+        " (when (BinaryOp (left (Identifier (parts [\"db\" \"users\" \"id\"]))) (op Eq) (right (Literal (value (Number (text \"42\")))))))",
+        " (then (Literal (value (String (value \"ok\\n\\\"1\\\"\")))))",
+        " (op Add)",
+        ") ",
+        "(WhenThen",
+        " (when (Identifier (parts [\"db\" \"users\" \"id\"])))",
+        " (then (Literal (value (Number (text \"42\")))))",
+        ")",
+        "])",
+        " (else (Literal (value Null)))",
+        "))",
+        " (to (Int (nullable true) (unsigned false) (width 64)))",
+        " (notes [\"narrow\" \"checked\"])",
+        ") ",
+        "(Cast",
+        " (e (Identifier (parts [\"db\" \"users\" \"id\"])))",
+        " (to Bool)",
+        ")",
+        "])",
+        ")"
+    );
+
+    let expected_report = CppTreeReport {
+        runtime_abi_version: dbt_asdl::RUNTIME_ABI_VERSION,
+        abi_version: gen_flat::ABI_VERSION,
+        schema_hash: gen_flat::SCHEMA_HASH,
+        expr_count: 2,
+        span_count: 2,
+        note_count: 2,
+        ident_part_count: 3,
+        case_count: 2,
+        number_value: 42,
+        dt0_nullable: 1,
+        dt0_unsigned: 0,
+        dt0_width: 64,
+        dt1_nullable: 0,
+        span0_end_index: 65,
+        span1_end_index: 80,
+    };
+
+    for raw in [
+        build_flat_tree_via_builder(),
+        build_flat_tree_via_lower_file(),
+    ] {
+        let mut report = CppTreeReport::default();
+        let mut sexpr_buf = vec![0u8; 4096];
+        let mut sexpr_len = 0usize;
+
+        let rc = unsafe {
+            cpp_inspect_mini_sql_tree(
+                raw,
+                &mut report,
+                sexpr_buf.as_mut_ptr(),
+                sexpr_buf.len(),
+                &mut sexpr_len,
+            )
+        };
+        assert_eq!(rc, 0, "C++ tree inspection failed with code {rc}");
+        assert_eq!(report, expected_report);
+
+        let cpp_sexpr = std::str::from_utf8(&sexpr_buf[..sexpr_len]).expect("valid UTF-8 sexpr");
+        assert_eq!(cpp_sexpr, expected_sexpr);
+    }
+}
+
+#[test]
+fn flat_cpp_shim_summarizes_lowered_arena_and_owned_trees() {
+    let b = &Bump::new();
+    let arena_expr = build_arena_expr(b, span_at(1, 50));
+    let owned_expr = build_owned_expr(span_at(1, 50));
+
+    let arena_file = al(
+        b,
+        arena::File {
+            exprs: bvec![in b; arena_expr],
+            spans: bvec![in b; span_at(1, 50)],
+        },
+    );
+    let owned_file = owned::File {
+        exprs: vec![owned_expr],
+        spans: vec![span_at(1, 50)],
+    };
+
+    let raw_from_lower = gen_flat::lower_file_with_builder(FileRef::from(arena_file));
+    let raw_from_convert = gen_flat::convert_file(FileRef::from(&owned_file));
+
+    let rust_tree = unsafe {
+        dbt_asdl::Tree::from_raw(gen_flat::lower_file_with_builder(FileRef::from(arena_file)))
+    }
+    .expect("valid flat tree");
+    let expected_sexpr = rust_tree.to_sexpr();
+
+    for raw in [raw_from_lower, raw_from_convert] {
+        let mut summary = CppWalkSummary::default();
+        let mut sexpr_buf = vec![0u8; 4096];
+        let mut sexpr_len = 0usize;
+
+        let rc = unsafe {
+            cpp_walk_and_summarize(
+                raw,
+                &mut summary,
+                sexpr_buf.as_mut_ptr(),
+                sexpr_buf.len(),
+                &mut sexpr_len,
+            )
+        };
+        assert_eq!(rc, 0, "C++ walk and summarize failed with code {rc}");
+        assert_eq!(summary.ident_part_count, 5);
+        assert_eq!(summary.number_sum, 3);
+        assert_eq!(summary.binary_op_count, 2);
+        assert_eq!(summary.cast_count, 2);
+        assert_eq!(summary.when_then_count, 2);
+        assert_eq!(summary.note_count, 2);
+        assert!(summary.node_count > 20);
+        assert_eq!(summary.location_index_sum, 20 * (1 + 50));
+
+        let cpp_sexpr = std::str::from_utf8(&sexpr_buf[..sexpr_len]).expect("valid UTF-8 sexpr");
+        assert_eq!(cpp_sexpr, expected_sexpr);
+    }
+
+    assert_eq!(unsafe { cpp_test_abi_and_primitives() }, 0);
 }

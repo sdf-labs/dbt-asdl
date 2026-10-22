@@ -4,6 +4,9 @@ use std::ptr::NonNull;
 
 use crate::sexpr::write_escaped;
 
+/// The C++17 header that gives the host-side [`Tree`] wrapper for [`FlatTree`].
+pub const FLAT_RUNTIME_HPP: &str = include_str!("flat_runtime.hpp");
+
 /// Layout version of the `dbt-asdl` boundary descriptor and tree-record structs
 /// (`FlatDialect`, `FlatSchema`, `FlatTree`, `FlatSection`, `FlatStr`,
 /// `FlatSeq`, and `Opt*`). Checked at load time before any schema table or
