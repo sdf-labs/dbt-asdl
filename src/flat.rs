@@ -1597,3 +1597,438 @@ pub fn generate_flat(
 
     Ok(vec![dst.to_path_buf(), convert_path])
 }
+
+fn cpp_field(name: &str) -> String {
+    match name {
+        "alignas" | "alignof" | "and" | "and_eq" | "asm" | "auto" | "bitand" | "bitor" | "bool"
+        | "break" | "case" | "catch" | "char" | "char8_t" | "char16_t" | "char32_t" | "class"
+        | "compl" | "concept" | "const" | "consteval" | "constexpr" | "constinit"
+        | "const_cast" | "continue" | "co_await" | "co_return" | "co_yield" | "decltype"
+        | "default" | "delete" | "do" | "double" | "dynamic_cast" | "else" | "enum"
+        | "explicit" | "export" | "extern" | "false" | "float" | "for" | "friend" | "goto"
+        | "if" | "inline" | "int" | "long" | "mutable" | "namespace" | "new" | "noexcept"
+        | "not" | "not_eq" | "nullptr" | "operator" | "or" | "or_eq" | "private" | "protected"
+        | "public" | "register" | "reinterpret_cast" | "requires" | "return" | "short"
+        | "signed" | "sizeof" | "static" | "static_assert" | "static_cast" | "struct"
+        | "switch" | "template" | "this" | "thread_local" | "throw" | "true" | "try"
+        | "typedef" | "typeid" | "typename" | "union" | "unsigned" | "using" | "virtual"
+        | "void" | "volatile" | "wchar_t" | "while" | "xor" | "xor_eq" => {
+            format!("{name}_")
+        }
+        _ => name.to_string(),
+    }
+}
+
+fn cpp_record_ty(f: &Field, infos: &HashMap<String, TypeInfo>) -> String {
+    let t = f.ty.as_str();
+    if f.seq {
+        return "dbt_asdl::FlatSeq".to_string();
+    }
+    if f.opt {
+        return match t {
+            "bool" => "dbt_asdl::OptBool".to_string(),
+            "byte" => "dbt_asdl::OptByte".to_string(),
+            "int" => "dbt_asdl::OptInt".to_string(),
+            "long" => "dbt_asdl::OptLong".to_string(),
+            "identifier" | "string" => "dbt_asdl::FlatStr".to_string(),
+            _ if infos[t].kind == InfoKind::SimpleSum => "uint8_t".to_string(),
+            _ => format!("{}Ref", camel(t)),
+        };
+    }
+    match t {
+        "bool" | "byte" => "uint8_t".to_string(),
+        "int" => "int32_t".to_string(),
+        "long" => "int64_t".to_string(),
+        "identifier" | "string" => "dbt_asdl::FlatStr".to_string(),
+        _ if infos[t].kind == InfoKind::SimpleSum => "uint8_t".to_string(),
+        _ => format!("{}Ref", camel(t)),
+    }
+}
+
+fn emit_cpp_ref_newtypes(
+    w: &mut Vec<String>,
+    mod_node: &Module,
+    infos: &HashMap<String, TypeInfo>,
+) {
+    emit!(w, "// Typed node references for products and compound sums.");
+    for d in &mod_node.dfns {
+        let info = &infos[&d.name];
+        if !matches!(info.kind, InfoKind::Product | InfoKind::CompoundSum) {
+            continue;
+        }
+        let r = &info.rust;
+        emit!(w, "");
+        emit!(w, "struct {r}Ref {{");
+        emit!(w, "    uint32_t value;");
+        emit!(w, "");
+        emit!(w, "    static const {r}Ref NONE;");
+        emit!(w, "");
+        emit!(
+            w,
+            "    constexpr bool is_none() const noexcept {{ return value == dbt_asdl::NONE_U32; }}"
+        );
+        emit!(w, "");
+        emit!(w, "    constexpr bool operator==(const {r}Ref& other) const noexcept {{");
+        emit!(w, "        return value == other.value;");
+        emit!(w, "    }}");
+        emit!(w, "    constexpr bool operator!=(const {r}Ref& other) const noexcept {{");
+        emit!(w, "        return value != other.value;");
+        emit!(w, "    }}");
+        emit!(
+            w,
+            "    constexpr bool operator==(uint32_t raw) const noexcept {{ return value == raw; }}"
+        );
+        emit!(
+            w,
+            "    constexpr bool operator!=(uint32_t raw) const noexcept {{ return value != raw; }}"
+        );
+        emit!(w, "}};");
+        emit!(w, "");
+        emit!(w, "inline constexpr {r}Ref {r}Ref::NONE{{dbt_asdl::NONE_U32}};");
+    }
+    emit!(w, "");
+}
+
+fn emit_cpp_enums(
+    w: &mut Vec<String>,
+    mod_node: &Module,
+    infos: &HashMap<String, TypeInfo>,
+) -> Result<(), CodegenError> {
+    emit!(w, "// Simple sum enums and compound sum constructor tags.");
+    for d in &mod_node.dfns {
+        let info = &infos[&d.name];
+        match info.kind {
+            InfoKind::Product => continue,
+            InfoKind::SimpleSum => {
+                if info.constructors.len() > 0xFF {
+                    return Err(CodegenError(format!(
+                        "{}: a simple sum with > 255 constructors does not fit the u8 encoding",
+                        info.name
+                    )));
+                }
+                let r = &info.rust;
+                emit!(w, "");
+                emit!(w, "enum class {r} : uint8_t {{");
+                for (tag, c) in info.constructors.iter().enumerate() {
+                    emit!(w, "    {} = {tag},", camel(&c.name));
+                }
+                emit!(w, "}};");
+                emit!(w, "");
+                emit!(
+                    w,
+                    "constexpr std::optional<{r}> {}_from_u8(uint8_t v) noexcept {{",
+                    info.name
+                );
+                emit!(w, "    switch (v) {{");
+                for (tag, c) in info.constructors.iter().enumerate() {
+                    emit!(w, "        case {tag}: return {r}::{};", camel(&c.name));
+                }
+                emit!(w, "        default: return std::nullopt;");
+                emit!(w, "    }}");
+                emit!(w, "}}");
+            }
+            InfoKind::CompoundSum => {
+                if info.constructors.len() > 0x100 {
+                    return Err(CodegenError(format!(
+                        "{}: too many constructors for an 8-bit packed tag",
+                        info.name
+                    )));
+                }
+                let r = &info.rust;
+                emit!(w, "");
+                emit!(w, "enum class {r}Tag : uint16_t {{");
+                for (tag, c) in info.constructors.iter().enumerate() {
+                    emit!(w, "    {} = {tag},", camel(&c.name));
+                }
+                emit!(w, "}};");
+                emit!(w, "");
+                emit!(
+                    w,
+                    "constexpr std::optional<{r}Tag> {}_tag_from_u16(uint16_t v) noexcept {{",
+                    info.name
+                );
+                emit!(w, "    switch (v) {{");
+                for (tag, c) in info.constructors.iter().enumerate() {
+                    emit!(w, "        case {tag}: return {r}Tag::{};", camel(&c.name));
+                }
+                emit!(w, "        default: return std::nullopt;");
+                emit!(w, "    }}");
+                emit!(w, "}}");
+            }
+        }
+    }
+    emit!(w, "");
+    Ok(())
+}
+
+fn emit_cpp_records(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, TypeInfo>) {
+    emit!(w, "// C-compatible record structs for products and constructor payloads.");
+    for d in &mod_node.dfns {
+        let info = &infos[&d.name];
+        if info.kind == InfoKind::Product {
+            emit!(w, "");
+            emit!(w, "struct {} {{", info.rust);
+            for f in info.record_fields(None) {
+                let fname = f.name.as_deref().unwrap();
+                emit!(w, "    {} {};", cpp_record_ty(&f, infos), cpp_field(fname));
+            }
+            emit!(w, "}};");
+        } else if info.kind == InfoKind::CompoundSum {
+            if !info.constructors.iter().any(|c| info.ctor_has_record(c)) {
+                continue;
+            }
+            let ns = cpp_field(&info.name);
+            emit!(w, "");
+            emit!(w, "namespace {ns} {{");
+            for c in &info.constructors {
+                if !info.ctor_has_record(c) {
+                    continue;
+                }
+                emit!(w, "");
+                emit!(w, "struct {} {{", camel(&c.name));
+                for f in info.record_fields(Some(c)) {
+                    let fname = f.name.as_deref().unwrap();
+                    emit!(w, "    {} {};", cpp_record_ty(&f, infos), cpp_field(fname));
+                }
+                emit!(w, "}};");
+            }
+            emit!(w, "");
+            emit!(w, "}} // namespace {ns}");
+        }
+    }
+    emit!(w, "");
+}
+
+fn emit_cpp_views(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, TypeInfo>) {
+    emit!(w, "// Typed views and projections over dbt_asdl::Node and dbt_asdl::TreeView.");
+    for d in &mod_node.dfns {
+        let info = &infos[&d.name];
+        if info.kind != InfoKind::CompoundSum {
+            continue;
+        }
+        let r = &info.rust;
+        let ns = cpp_field(&info.name);
+        emit!(w, "");
+        emit!(w, "class {r}View {{");
+        emit!(w, "public:");
+        emit!(
+            w,
+            "    constexpr explicit {r}View(dbt_asdl::Node node) noexcept : node_(node) {{}}"
+        );
+        emit!(w, "");
+        emit!(w, "    constexpr dbt_asdl::Node node() const noexcept {{ return node_; }}");
+        emit!(w, "");
+        emit!(w, "    std::optional<{r}Tag> tag() const noexcept {{");
+        emit!(w, "        auto tree = node_.tree();");
+        emit!(w, "        auto ty = tree.type_by_name(\"{}\");", info.name);
+        emit!(w, "        if (!ty) {{");
+        emit!(w, "            return std::nullopt;");
+        emit!(w, "        }}");
+        emit!(w, "        auto raw_tag = tree.sum_tag(*ty, node_.index());");
+        emit!(w, "        if (!raw_tag) {{");
+        emit!(w, "            return std::nullopt;");
+        emit!(w, "        }}");
+        emit!(w, "        return {}_tag_from_u16(*raw_tag);", info.name);
+        emit!(w, "    }}");
+        for c in &info.constructors {
+            if !info.ctor_has_record(c) {
+                continue;
+            }
+            let cname = camel(&c.name);
+            let uname = uncamel(&cname);
+            emit!(w, "");
+            emit!(w, "    const {ns}::{cname}* as_{uname}() const noexcept {{");
+            emit!(
+                w,
+                "        return node_.as_payload<{ns}::{cname}>(\"{}\", static_cast<uint16_t>({r}Tag::{cname}));",
+                info.name
+            );
+            emit!(w, "    }}");
+        }
+        emit!(w, "");
+        emit!(w, "private:");
+        emit!(w, "    dbt_asdl::Node node_;");
+        emit!(w, "}};");
+    }
+
+    for d in &mod_node.dfns {
+        let info = &infos[&d.name];
+        let r = &info.rust;
+        match info.kind {
+            InfoKind::Product => {
+                emit!(w, "");
+                emit!(w, "inline const {r}* as_{}(dbt_asdl::Node node) noexcept {{", info.name);
+                emit!(w, "    return node.as_product<{r}>(\"{}\");", info.name);
+                emit!(w, "}}");
+                emit!(w, "");
+                emit!(
+                    w,
+                    "inline const {r}* as_{}(dbt_asdl::TreeView tree, {r}Ref ref) noexcept {{",
+                    info.name
+                );
+                emit!(w, "    if (ref.is_none()) {{");
+                emit!(w, "        return nullptr;");
+                emit!(w, "    }}");
+                emit!(w, "    auto ty = tree.type_by_name(\"{}\");", info.name);
+                emit!(w, "    if (!ty) {{");
+                emit!(w, "        return nullptr;");
+                emit!(w, "    }}");
+                emit!(w, "    return tree.product<{r}>(*ty, ref.value);");
+                emit!(w, "}}");
+            }
+            InfoKind::CompoundSum => {
+                emit!(w, "");
+                emit!(
+                    w,
+                    "inline std::optional<{r}View> as_{}(dbt_asdl::Node node) noexcept {{",
+                    info.name
+                );
+                emit!(
+                    w,
+                    "    if (node.tree().type_by_name(\"{}\") != node.type_index()) {{",
+                    info.name
+                );
+                emit!(w, "        return std::nullopt;");
+                emit!(w, "    }}");
+                emit!(w, "    return {r}View(node);");
+                emit!(w, "}}");
+                emit!(w, "");
+                emit!(
+                    w,
+                    "inline std::optional<{r}View> as_{}(dbt_asdl::TreeView tree, {r}Ref ref) noexcept {{",
+                    info.name
+                );
+                emit!(w, "    if (ref.is_none()) {{");
+                emit!(w, "        return std::nullopt;");
+                emit!(w, "    }}");
+                emit!(w, "    auto ty = tree.type_by_name(\"{}\");", info.name);
+                emit!(w, "    if (!ty || !tree.sum_tag(*ty, ref.value)) {{");
+                emit!(w, "        return std::nullopt;");
+                emit!(w, "    }}");
+                emit!(w, "    return {r}View(dbt_asdl::Node(tree.raw(), *ty, ref.value));");
+                emit!(w, "}}");
+            }
+            InfoKind::SimpleSum => {}
+        }
+    }
+    emit!(w, "");
+}
+
+pub(crate) fn generate_cpp_flat_from_module(
+    mod_node: &Module,
+    input_name: &str,
+    schema_hash: u64,
+) -> Result<String, CodegenError> {
+    let mut builtins: Vec<&str> = asdl::BUILTIN_TYPES.to_vec();
+    for &k in BUILTIN_TYPES {
+        if !builtins.contains(&k) {
+            builtins.push(k);
+        }
+    }
+    if asdl::check_with_builtins(mod_node, &builtins).is_err() {
+        return Err(CodegenError(format!("{input_name}: ASDL check failed")));
+    }
+
+    let order: Vec<String> = mod_node.dfns.iter().map(|d| d.name.clone()).collect();
+    let mut infos: HashMap<String, TypeInfo> = mod_node
+        .dfns
+        .iter()
+        .map(|dfn| (dfn.name.clone(), TypeInfo::from_dfn(dfn)))
+        .collect();
+
+    validate(mod_node, &infos)?;
+    compute_shared(&order, &mut infos);
+    let _layout = Layout::build(mod_node, &mut infos)?;
+    if !infos.contains_key("file") {
+        return Err(CodegenError("flat layout requires a 'file' root type".to_string()));
+    }
+
+    let mod_snake = uncamel(&mod_node.name);
+    let ns = cpp_field(&mod_snake);
+    let guard = format!("DBT_ASDL_{}_FLAT_HPP", mod_snake.to_uppercase());
+
+    let mut w = Vec::new();
+    emit!(w, "// File automatically generated by dbt-asdl from {input_name}. Do not edit.");
+    emit!(w, "");
+    emit!(w, "#ifndef {guard}");
+    emit!(w, "#define {guard}");
+    emit!(w, "");
+    emit!(w, "#include <dbt_asdl/flat_runtime.hpp>");
+    emit!(w, "");
+    emit!(w, "namespace {ns} {{");
+    emit!(w, "");
+    emit!(w, "inline constexpr uint32_t ABI_VERSION = {};", mod_node.version);
+    emit!(w, "inline constexpr uint64_t SCHEMA_HASH = 0x{schema_hash:016x}ULL;");
+    emit!(w, "");
+
+    emit_cpp_ref_newtypes(&mut w, mod_node, &infos);
+    emit_cpp_enums(&mut w, mod_node, &infos)?;
+    emit_cpp_records(&mut w, mod_node, &infos);
+    emit_cpp_views(&mut w, mod_node, &infos);
+
+    emit!(w, "}} // namespace {ns}");
+    emit!(w, "");
+    emit!(w, "#endif // {guard}");
+
+    Ok(format!("{}\n", w.join("\n")))
+}
+
+/// Generates the C++17 flat AST header from an ASDL file.
+///
+/// The generator reads the ASDL specification at `src` and writes the C++17
+/// header to `dst`. The header defines node reference structs, enum tags,
+/// record structs, and typed view projections for all types in the
+/// specification.
+///
+/// # Errors
+///
+/// If the generator cannot read `src` or write `dst`, this function returns an
+/// I/O error. If the ASDL specification is not valid, this function returns a
+/// syntax or code-generation error.
+///
+/// # Examples
+///
+/// ```
+/// use std::fs;
+///
+/// let dir = std::env::temp_dir().join("dbt_asdl_cpp_flat_doctest");
+/// fs::create_dir_all(&dir)?;
+///
+/// let spec = dir.join("sql.asdl");
+/// fs::write(
+///     &spec,
+///     "module Sql { expr = Lit(int value) | Add(expr left, expr right)\n file = (expr* exprs) }",
+/// )?;
+///
+/// let files = dbt_asdl::codegen::cpp::generate_flat(&spec, dir.join("gen_flat.hpp"))?;
+/// assert_eq!(files, vec![dir.join("gen_flat.hpp")]);
+/// assert!(dir.join("gen_flat.hpp").is_file());
+///
+/// fs::remove_dir_all(&dir)?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+pub fn generate_cpp_flat(
+    src: impl AsRef<Path>,
+    dst: impl AsRef<Path>,
+) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+    let src = src.as_ref();
+    let dst = dst.as_ref();
+    let input_name = src
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("input.asdl");
+    let raw_bytes = fs::read(src)?;
+    let schema_hash = fnv1a64(&raw_bytes);
+    let source = std::str::from_utf8(&raw_bytes)?;
+    let mod_node = asdl::parse_str(source)?;
+    let generated = generate_cpp_flat_from_module(&mod_node, input_name, schema_hash)?;
+
+    if let Some(parent) = dst.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(dst, &generated)?;
+
+    Ok(vec![dst.to_path_buf()])
+}

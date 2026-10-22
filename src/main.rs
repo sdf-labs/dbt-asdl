@@ -12,8 +12,16 @@ fn main() {
         }
         return;
     }
+    if args.len() == 4 && args[1] == "--cpp-flat" {
+        if let Err(err) = dbt_asdl::codegen::cpp::generate_flat(&args[2], &args[3]) {
+            eprintln!("{err}");
+            process::exit(1);
+        }
+        return;
+    }
     if args.len() != 3 || args[1].starts_with('-') {
         eprintln!("usage: dbt-asdl INPUT.asdl OUTPUT.rs");
+        eprintln!("       dbt-asdl --cpp-flat INPUT.asdl OUTPUT.hpp");
         eprintln!("       dbt-asdl --emit-cpp-runtime INCLUDE_DIR");
         process::exit(2);
     }

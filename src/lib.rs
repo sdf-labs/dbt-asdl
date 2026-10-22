@@ -36,8 +36,9 @@ pub use ustr::Ustr as Identifier;
 
 /// Target-language AST code generators.
 pub mod codegen {
-    /// C++ runtime header emission for flat AST consumers.
+    /// C++ AST code generation and runtime header emission for flat AST consumers.
     pub mod cpp {
+        pub use crate::flat::generate_cpp_flat as generate_flat;
         pub use crate::flat_runtime::write_runtime_header;
     }
 
@@ -226,14 +227,20 @@ module Edge {
         let paths = generate_flat(&spec_path, tmp_dir.join("gen_flat.rs")).unwrap();
         assert_eq!(paths.len(), 2);
 
+        let cpp_paths =
+            crate::codegen::cpp::generate_flat(&spec_path, tmp_dir.join("gen_flat.hpp")).unwrap();
+        assert_eq!(cpp_paths, vec![tmp_dir.join("gen_flat.hpp")]);
+
         let flat = std::fs::read_to_string(tmp_dir.join("gen_flat.rs")).unwrap();
         let convert = std::fs::read_to_string(tmp_dir.join("gen_convert.rs")).unwrap();
+        let cpp_flat = std::fs::read_to_string(tmp_dir.join("gen_flat.hpp")).unwrap();
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
 
         assert!(!flat.contains("Sql"), "the flat target must not mention Sql");
         insta::assert_snapshot!("mini_sql_flat", flat);
         insta::assert_snapshot!("mini_sql_convert", convert);
+        insta::assert_snapshot!("mini_sql_cpp_flat", cpp_flat);
     }
 
     #[test]

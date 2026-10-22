@@ -1444,5 +1444,23 @@ fn cpp_runtime_header_emission_via_api_and_cli() {
     let cli_header = cli_include.join("dbt_asdl/flat_runtime.hpp");
     assert_eq!(std::fs::read_to_string(&cli_header).unwrap(), dbt_asdl::FLAT_RUNTIME_HPP);
 
+    let asdl_path =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mini_sql.asdl");
+    let cli_flat_hpp = base_dir.join("cli_flat/gen_flat.hpp");
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_dbt-asdl"))
+        .arg("--cpp-flat")
+        .arg(&asdl_path)
+        .arg(&cli_flat_hpp)
+        .status()
+        .expect("failed to run dbt-asdl --cpp-flat");
+    assert!(status.success());
+    let api_flat_hpp = base_dir.join("api_flat/gen_flat.hpp");
+    dbt_asdl::codegen::cpp::generate_flat(&asdl_path, &api_flat_hpp)
+        .expect("cpp::generate_flat succeeds");
+    assert_eq!(
+        std::fs::read_to_string(&cli_flat_hpp).unwrap(),
+        std::fs::read_to_string(&api_flat_hpp).unwrap()
+    );
+
     let _ = std::fs::remove_dir_all(&base_dir);
 }
