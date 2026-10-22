@@ -36,6 +36,11 @@ pub use ustr::Ustr as Identifier;
 
 /// Target-language AST code generators.
 pub mod codegen {
+    /// C++ runtime header emission for flat AST consumers.
+    pub mod cpp {
+        pub use crate::flat_runtime::write_runtime_header;
+    }
+
     /// Rust AST code generation from ASDL specifications.
     pub mod rust {
         pub use crate::flat::generate_flat;

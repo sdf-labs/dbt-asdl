@@ -1,4 +1,4 @@
-#include "flat_runtime.hpp"
+#include <dbt_asdl/flat_runtime.hpp>
 
 #include <cstdlib>
 #include <cstring>

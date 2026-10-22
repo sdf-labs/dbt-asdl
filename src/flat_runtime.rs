@@ -4,8 +4,36 @@ use std::ptr::NonNull;
 
 use crate::sexpr::write_escaped;
 
-/// The C++17 header that gives the host-side [`Tree`] wrapper for [`FlatTree`].
-pub const FLAT_RUNTIME_HPP: &str = include_str!("flat_runtime.hpp");
+/// The C++17 header source for the host-side [`Tree`] wrapper of [`FlatTree`].
+pub const FLAT_RUNTIME_HPP: &str = include_str!("../include/dbt_asdl/flat_runtime.hpp");
+
+/// Writes `<include_dir>/dbt_asdl/flat_runtime.hpp` and returns the file path.
+///
+/// Pass `include_dir` to the C++ compiler include path so that C++ sources
+/// can use `#include <dbt_asdl/flat_runtime.hpp>`.
+///
+/// # Examples
+///
+/// ```
+/// let include_dir = std::env::temp_dir().join(format!(
+///     "dbt_asdl_cpp_doc_{}",
+///     std::process::id()
+/// ));
+/// let header = dbt_asdl::codegen::cpp::write_runtime_header(&include_dir)?;
+/// assert_eq!(header, include_dir.join("dbt_asdl/flat_runtime.hpp"));
+/// assert_eq!(std::fs::read_to_string(&header)?, dbt_asdl::FLAT_RUNTIME_HPP);
+/// std::fs::remove_dir_all(&include_dir)?;
+/// # Ok::<(), std::io::Error>(())
+/// ```
+pub fn write_runtime_header(
+    include_dir: impl AsRef<std::path::Path>,
+) -> std::io::Result<std::path::PathBuf> {
+    let sub_dir = include_dir.as_ref().join("dbt_asdl");
+    std::fs::create_dir_all(&sub_dir)?;
+    let header_path = sub_dir.join("flat_runtime.hpp");
+    std::fs::write(&header_path, FLAT_RUNTIME_HPP)?;
+    Ok(header_path)
+}
 
 /// Layout version of the `dbt-asdl` boundary descriptor and tree-record structs
 /// (`FlatDialect`, `FlatSchema`, `FlatTree`, `FlatSection`, `FlatStr`,
