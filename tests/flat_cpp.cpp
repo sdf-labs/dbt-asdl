@@ -197,7 +197,8 @@ void walk_expr_typed(TreeView tree, ExprView e, WalkStats& stats) {
             if (auto op = as_expr(tree, r->operand)) {
                 walk_expr_typed(tree, *op, stats);
             }
-            for (Value item : *tree.seq("when_then", r->cases)) {
+            SeqView cases = *tree.seq("when_then", r->cases);
+            for (Value item : cases) {
                 walk_when_then_typed(tree, as_when_then(*item.as_node()), stats);
             }
             if (auto el = as_expr(tree, r->else_)) {
@@ -219,10 +220,12 @@ void walk_expr_typed(TreeView tree, ExprView e, WalkStats& stats) {
 
 void walk_file_typed(TreeView tree, const File* f, WalkStats& stats) {
     stats.node_count += 1;
-    for (Value item : *tree.seq("expr", f->exprs)) {
+    SeqView exprs = *tree.seq("expr", f->exprs);
+    for (Value item : exprs) {
         walk_expr_typed(tree, *as_expr(*item.as_node()), stats);
     }
-    for (Value item : *tree.seq("span", f->spans)) {
+    SeqView spans = *tree.seq("span", f->spans);
+    for (Value item : spans) {
         walk_span_typed(tree, as_span(*item.as_node()), stats);
     }
 }
