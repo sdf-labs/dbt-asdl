@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0](https://github.com/sdf-labs/dbt-asdl/compare/v0.3.0...v1.0.0) - 2026-10-22
+
+### Other
+
+- Document Rust and C++ tree build and API usage in README ([#24](https://github.com/sdf-labs/dbt-asdl/pull/24))
+- Add C++ flat AST codegen for typed record structs and views ([#23](https://github.com/sdf-labs/dbt-asdl/pull/23))
+- Package C++ runtime header under include/dbt_asdl with Rust/CLI helpers and CMake target ([#22](https://github.com/sdf-labs/dbt-asdl/pull/22))
+- Add C++ shim layer for FlatTree and static FFI integration tests ([#20](https://github.com/sdf-labs/dbt-asdl/pull/20))
+
 ## [0.3.0](https://github.com/sdf-labs/dbt-asdl/compare/v0.2.0...v0.3.0) - 2026-10-21
 
 ### Other
