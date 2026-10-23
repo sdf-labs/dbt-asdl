@@ -177,6 +177,8 @@ fn build_arena_expr(b: &Bump, span: Span) -> arena::ExprRef<'_> {
             e: sub_expr,
             to: int_ty,
             notes: bvec![in b; &*b.alloc_str("fast"), &*b.alloc_str("checked")],
+            flags: bvec![in b; 10, 20],
+            ops: bvec![in b; BinOp::Add, BinOp::Sub],
         })),
     );
 
@@ -197,6 +199,8 @@ fn build_arena_expr(b: &Bump, span: Span) -> arena::ExprRef<'_> {
             e: a_null(b, span),
             to: bool_ty,
             notes: BVec::new_in(b),
+            flags: BVec::new_in(b),
+            ops: BVec::new_in(b),
         })),
     );
 
@@ -239,6 +243,8 @@ fn build_owned_expr(span: Span) -> owned::Expr {
         e: Box::new(sub_expr),
         to: Box::new(int_ty),
         notes: vec!["fast".into(), "checked".into()],
+        flags: vec![10, 20],
+        ops: vec![BinOp::Add, BinOp::Sub],
     }));
 
     let cond2 = o_ident(span, &["c"]);
@@ -253,6 +259,8 @@ fn build_owned_expr(span: Span) -> owned::Expr {
         e: Box::new(o_null(span)),
         to: Box::new(bool_ty),
         notes: Vec::new(),
+        flags: Vec::new(),
+        ops: Vec::new(),
     }));
 
     owned::Expr::Case(Box::new(owned::expr::Case {
@@ -431,7 +439,7 @@ fn arena_and_owned_trees_equality_conversion_and_sexpr() {
         " (cases [",
         "(WhenThen",
         " (when (BinaryOp (left (Identifier (parts [\"t\" \"a\"]))) (op Eq) (right (Literal (value (Number (text \"1\")))))))",
-        " (then (Cast (e (BinaryOp (left (Identifier (parts [\"b\"]))) (op Sub) (right (Literal (value (Number (text \"2\"))))))) (to (Int (unsigned true) (width 64))) (notes [\"fast\" \"checked\"])))",
+        " (then (Cast (e (BinaryOp (left (Identifier (parts [\"b\"]))) (op Sub) (right (Literal (value (Number (text \"2\"))))))) (to (Int (unsigned true) (width 64))) (notes [\"fast\" \"checked\"]) (flags [10 20]) (ops [Add Sub])))",
         " (op Add)",
         ") ",
         "(WhenThen",
@@ -492,7 +500,7 @@ fn inspect_case_tree(root: ExprRef<'_>) {
             "[",
             "(WhenThen",
             " (when (BinaryOp (left (Identifier (parts [\"t\" \"a\"]))) (op Eq) (right (Literal (value (Number (text \"1\")))))))",
-            " (then (Cast (e (BinaryOp (left (Identifier (parts [\"b\"]))) (op Sub) (right (Literal (value (Number (text \"2\"))))))) (to (Int (unsigned true) (width 64))) (notes [\"fast\" \"checked\"])))",
+            " (then (Cast (e (BinaryOp (left (Identifier (parts [\"b\"]))) (op Sub) (right (Literal (value (Number (text \"2\"))))))) (to (Int (unsigned true) (width 64))) (notes [\"fast\" \"checked\"]) (flags [10 20]) (ops [Add Sub])))",
             " (op Add)",
             ") ",
             "(WhenThen",
@@ -543,6 +551,8 @@ fn inspect_case_tree(root: ExprRef<'_>) {
     let notes_vec: Vec<&str> = notes.into_iter().collect();
     assert_eq!(notes_vec, ["fast", "checked"]);
     assert_eq!(notes.to_sexpr(), "[\"fast\" \"checked\"]");
+    assert_eq!(cast1.flags(), &[10, 20]);
+    assert_eq!(cast1.ops(), &[BinOp::Add, BinOp::Sub]);
 
     let collected: Vec<WhenThenRef<'_>> = cases.into_iter().collect();
     assert_eq!(collected.len(), 2);
@@ -563,6 +573,8 @@ fn inspect_case_tree(root: ExprRef<'_>) {
     match else_expr.view() {
         ExprView::Cast(c) => {
             assert!(c.notes().is_empty());
+            assert!(c.flags().is_empty());
+            assert!(c.ops().is_empty());
             assert_eq!(c.e().as_literal().unwrap().value().kind(), LiteralKind::Null);
             match c.to().view() {
                 DataTypeView::Bool(b_view) => assert!(b_view.nullable()),
@@ -734,6 +746,8 @@ fn flat_abi_loads_cdylib_and_exercises_tree_across_boundary() {
         "))",
         " (to (Int (nullable true) (unsigned false) (width 64)))",
         " (notes [\"narrow\" \"checked\"])",
+        " (flags [10 20])",
+        " (ops [Add Sub])",
         ") ",
         "(Cast",
         " (e (Identifier (parts [\"db\" \"users\" \"id\"])))",
@@ -785,6 +799,32 @@ fn flat_abi_loads_cdylib_and_exercises_tree_across_boundary() {
             })
             .collect();
         assert_eq!(note_strs, ["narrow", "checked"]);
+
+        let Some(Value::Seq(flags)) = cast0.field("flags") else {
+            panic!("expected flags sequence");
+        };
+        assert_eq!(flags.elem_type(), tree.type_by_name("int").unwrap());
+        let flag_ints: Vec<i32> = flags
+            .iter()
+            .map(|v| match v {
+                Value::Int(n) => n,
+                _ => panic!("expected Int in flags"),
+            })
+            .collect();
+        assert_eq!(flag_ints, [10, 20]);
+
+        let Some(Value::Seq(ops)) = cast0.field("ops") else {
+            panic!("expected ops sequence");
+        };
+        assert_eq!(ops.elem_type(), tree.type_by_name("bin_op").unwrap());
+        let op_names: Vec<&str> = ops
+            .iter()
+            .map(|v| match v {
+                Value::SimpleSum(ty, tag) => tree.simple_variant_name(ty, tag).unwrap(),
+                _ => panic!("expected SimpleSum in ops"),
+            })
+            .collect();
+        assert_eq!(op_names, ["Add", "Sub"]);
 
         let to0 = child_node(cast0, "to");
         assert_eq!(to0.type_name(), "data_type");
@@ -1148,12 +1188,16 @@ fn build_flat_tree_via_builder() -> *mut dbt_asdl::FlatTree {
     let n_narrow = b.push_str("narrow");
     let n_checked = b.push_str("checked");
     let notes_int = b.push_string_seq(&[n_narrow, n_checked]);
+    let flags_int = b.push_int_seq(&[10, 20]);
+    let ops_int = b.push_bin_op_seq(&[BinOp::Add as u8, BinOp::Sub as u8]);
     let span_cast_int = flat_span(&mut b, 0, 51);
     let cast_int = b.push_expr_cast(expr::Cast {
         span: span_cast_int,
         e: case_expr,
         to: int_ty,
         notes: notes_int,
+        flags: flags_int,
+        ops: ops_int,
     });
 
     let span_bool_ty = flat_span(&mut b, 60, 64);
@@ -1162,12 +1206,16 @@ fn build_flat_tree_via_builder() -> *mut dbt_asdl::FlatTree {
         nullable: 0,
     });
     let notes_bool = b.push_string_seq(&[]);
+    let flags_bool = b.push_int_seq(&[]);
+    let ops_bool = b.push_bin_op_seq(&[]);
     let span_cast_bool = flat_span(&mut b, 55, 65);
     let cast_bool = b.push_expr_cast(expr::Cast {
         span: span_cast_bool,
         e: ident_expr,
         to: bool_ty,
         notes: notes_bool,
+        flags: flags_bool,
+        ops: ops_bool,
     });
 
     let exprs = b.push_expr_seq(&[cast_int, cast_bool]);
@@ -1265,6 +1313,8 @@ fn build_flat_tree_via_lower_file() -> *mut dbt_asdl::FlatTree {
         e: case_expr,
         to: int_ty,
         notes: bvec![in &b; &*b.alloc_str("narrow"), &*b.alloc_str("checked")],
+        flags: bvec![in &b; 10, 20],
+        ops: bvec![in &b; BinOp::Add, BinOp::Sub],
     })));
 
     let bool_ty = b.alloc(arena::DataType::Bool(b.alloc(arena::data_type::Bool {
@@ -1276,6 +1326,8 @@ fn build_flat_tree_via_lower_file() -> *mut dbt_asdl::FlatTree {
         e: ident_expr,
         to: bool_ty,
         notes: BVec::new_in(&b),
+        flags: BVec::new_in(&b),
+        ops: BVec::new_in(&b),
     })));
 
     let extra_span = Span {
@@ -1313,6 +1365,8 @@ fn flat_cpp_shim_walks_trees_from_builder_and_lower_file() {
         "))",
         " (to (Int (nullable true) (unsigned false) (width 64)))",
         " (notes [\"narrow\" \"checked\"])",
+        " (flags [10 20])",
+        " (ops [Add Sub])",
         ") ",
         "(Cast",
         " (e (Identifier (parts [\"db\" \"users\" \"id\"])))",

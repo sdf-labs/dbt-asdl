@@ -461,11 +461,13 @@ pub mod expr {
         pub e: super::ExprRef<'a>,
         pub to: super::DataTypeRef<'a>,
         pub notes: Vec<'a, &'a str>,
+        pub flags: Vec<'a, i32>,
+        pub ops: Vec<'a, super::BinOp>,
     }
 
     impl<'a> PartialEq for Cast<'a> {
         fn eq(&self, other: &Self) -> bool {
-            self.e == other.e && self.to == other.to && self.notes == other.notes
+            self.e == other.e && self.to == other.to && self.notes == other.notes && self.flags == other.flags && self.ops == other.ops
         }
     }
 
@@ -607,6 +609,8 @@ impl<'a> expr::Cast<'a> {
             e: Box::new(self.e.to_owned()),
             to: Box::new(self.to.to_owned()),
             notes: self.notes.iter().map(|x| (*x).into()).collect(),
+            flags: self.flags.iter().copied().collect(),
+            ops: self.ops.iter().copied().collect(),
         }
     }
 }

@@ -22,7 +22,7 @@ module MiniSql version 2 {
        | Literal(literal value)
        | BinaryOp(expr left, bin_op op, expr right)
        | Case(expr? operand, when_then* cases, expr? else)
-       | Cast(expr e, data_type to, string* notes)
+       | Cast(expr e, data_type to, string* notes, int* flags, bin_op* ops)
        attributes (span span)
 
   file = (expr* exprs, span* spans)
