@@ -41,7 +41,7 @@ mod gen_convert {
     include!(concat!(env!("OUT_DIR"), "/gen_convert.rs"));
 }
 #[cfg(feature = "convert")]
-pub use gen_convert::convert_file;
+pub use gen_convert::*;
 
 fn arena_span(start: i64, end: i64) -> ast::Span {
     ast::Span {
@@ -159,7 +159,9 @@ fn build_via_convert() -> *mut FlatTree {
         exprs: bvec![in &b; &*cast_int, &*cast_bool],
         spans: bvec![in &b; arena_span(0, 65), extra_span],
     });
-    convert_file(ast::FileRef::Arena(file))
+    let mut fb = TreeBuilder::new();
+    lower_file(&mut fb, ast::FileRef::Arena(file));
+    fb.finish()
 }
 
 fn flat_span(b: &mut TreeBuilder, start: i64, end: i64) -> SpanRef {
@@ -310,8 +312,8 @@ fn build_via_builder() -> *mut FlatTree {
     });
     let spans = b.push_span_seq(&[file_span_0, file_span_1]);
 
-    let root = b.push_file(File { exprs, spans });
-    b.finish(root)
+    b.push_file(File { exprs, spans });
+    b.finish()
 }
 
 fn parse(src: &str) -> Result<*mut FlatTree, String> {
@@ -398,8 +400,8 @@ mod legacy_dialect {
 
         let exprs = b.push_expr_seq(&[cast_expr]);
         let spans = b.push_span_seq(&[sp]);
-        let root = b.push_file(File { exprs, spans });
-        Ok(b.finish(root))
+        b.push_file(File { exprs, spans });
+        Ok(b.finish())
     }
 
     dbt_asdl::export_sql_dialect!(sql_dialect_legacy, "legacy", "0.1.0", parse);
@@ -417,8 +419,8 @@ mod v2_dialect {
         let mut b = TreeBuilder::new();
         let exprs = b.push_expr_seq(&[]);
         let spans = b.push_span_seq(&[]);
-        let root = b.push_file(File { exprs, spans });
-        Ok(b.finish(root))
+        b.push_file(File { exprs, spans });
+        Ok(b.finish())
     }
 
     dbt_asdl::export_sql_dialect!(sql_dialect_v2, "v2", "0.2.0", parse);

@@ -263,7 +263,6 @@ struct FlatSchema {
     uint16_t type_count;
     uint16_t ctor_count;
     uint16_t field_count;
-    uint16_t root_type;
     const uint8_t* strings;
     const FlatTypeInfo* types;
     const FlatCtorInfo* ctors;
@@ -285,6 +284,7 @@ struct FlatSection {
 
 struct FlatTree {
     uint32_t section_count;
+    uint16_t root_type;
     uint32_t root_index;
     const FlatSchema* schema;
     FlatSection* sections;
@@ -665,12 +665,6 @@ inline bool validate_schema(
     if (schema.field_count > 0 && schema.fields == nullptr) {
         if (err_out) {
             *err_out = "null field table";
-        }
-        return false;
-    }
-    if (schema.root_type >= schema.type_count) {
-        if (err_out) {
-            *err_out = "root type " + std::to_string(schema.root_type) + " out of range";
         }
         return false;
     }
@@ -1319,7 +1313,7 @@ inline Value read_field(
 } // namespace detail
 
 inline Node TreeView::root() const noexcept {
-    return Node(raw_, raw_->schema->root_type, raw_->root_index);
+    return Node(raw_, raw_->root_type, raw_->root_index);
 }
 
 inline std::optional<SeqView> TreeView::seq(
@@ -1625,7 +1619,7 @@ static_assert(sizeof(FlatCtorInfo) == 14 && alignof(FlatCtorInfo) == 2);
 static_assert(sizeof(FlatTypeInfo) == 18 && alignof(FlatTypeInfo) == 2);
 
 static_assert(sizeof(void*) != 8 || (sizeof(FlatSection) == 16 && alignof(FlatSection) == 8));
-static_assert(sizeof(void*) != 8 || (sizeof(FlatTree) == 32 && alignof(FlatTree) == 8));
+static_assert(sizeof(void*) != 8 || (sizeof(FlatTree) == 40 && alignof(FlatTree) == 8));
 static_assert(sizeof(void*) != 8 || (sizeof(FlatDialect) == 40 && alignof(FlatDialect) == 8));
 static_assert(sizeof(void*) != 8 || (sizeof(FlatSchema) == 64 && alignof(FlatSchema) == 8));
 static_assert(sizeof(void*) != 8 || (sizeof(TreeView) == 8 && alignof(TreeView) == 8));

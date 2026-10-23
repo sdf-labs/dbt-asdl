@@ -379,6 +379,8 @@ pub struct TreeBuilder {
     bin_op_seq: Vec<u8>,
     when_then_seq: Vec<WhenThenRef>,
     expr_seq: Vec<ExprRef>,
+    root_type: u16,
+    root_index: u32,
 }
 
 #[cfg(feature = "builder")]
@@ -408,6 +410,8 @@ impl TreeBuilder {
             bin_op_seq: Vec::new(),
             when_then_seq: Vec::new(),
             expr_seq: Vec::new(),
+            root_type: NONE_U16,
+            root_index: NONE_U32,
         }
     }
 
@@ -422,6 +426,8 @@ impl TreeBuilder {
     pub fn push_code_location(&mut self, r: CodeLocation) -> CodeLocationRef {
         let i = self.code_location_nodes.len() as u32;
         self.code_location_nodes.push(r);
+        self.root_type = ty::CODE_LOCATION;
+        self.root_index = i;
         CodeLocationRef(i)
     }
 
@@ -429,6 +435,8 @@ impl TreeBuilder {
     pub fn push_span(&mut self, r: Span) -> SpanRef {
         let i = self.span_nodes.len() as u32;
         self.span_nodes.push(r);
+        self.root_type = ty::SPAN;
+        self.root_index = i;
         SpanRef(i)
     }
 
@@ -436,41 +444,58 @@ impl TreeBuilder {
     pub fn push_data_type_int(&mut self, r: data_type::Int) -> DataTypeRef {
         let payload = self.data_type_int.len() as u32;
         self.data_type_int.push(r);
-        DataTypeRef(pack_sum_ref(DataTypeTag::Int as u16, payload))
+        let idx = pack_sum_ref(DataTypeTag::Int as u16, payload);
+        self.root_type = ty::DATA_TYPE;
+        self.root_index = idx;
+        DataTypeRef(idx)
     }
 
     /// Push a `Bool` node of `data_type`.
     pub fn push_data_type_bool(&mut self, r: data_type::Bool) -> DataTypeRef {
         let payload = self.data_type_bool.len() as u32;
         self.data_type_bool.push(r);
-        DataTypeRef(pack_sum_ref(DataTypeTag::Bool as u16, payload))
+        let idx = pack_sum_ref(DataTypeTag::Bool as u16, payload);
+        self.root_type = ty::DATA_TYPE;
+        self.root_index = idx;
+        DataTypeRef(idx)
     }
 
     /// Push a `Number` node of `literal`.
     pub fn push_literal_number(&mut self, r: literal::Number) -> LiteralRef {
         let payload = self.literal_number.len() as u32;
         self.literal_number.push(r);
-        LiteralRef(pack_sum_ref(LiteralTag::Number as u16, payload))
+        let idx = pack_sum_ref(LiteralTag::Number as u16, payload);
+        self.root_type = ty::LITERAL;
+        self.root_index = idx;
+        LiteralRef(idx)
     }
 
     /// Push a `String` node of `literal`.
     pub fn push_literal_string(&mut self, r: literal::String) -> LiteralRef {
         let payload = self.literal_string.len() as u32;
         self.literal_string.push(r);
-        LiteralRef(pack_sum_ref(LiteralTag::String as u16, payload))
+        let idx = pack_sum_ref(LiteralTag::String as u16, payload);
+        self.root_type = ty::LITERAL;
+        self.root_index = idx;
+        LiteralRef(idx)
     }
 
     /// Push a `Null` node of `literal`.
     pub fn push_literal_null(&mut self, r: literal::Null) -> LiteralRef {
         let payload = self.literal_null.len() as u32;
         self.literal_null.push(r);
-        LiteralRef(pack_sum_ref(LiteralTag::Null as u16, payload))
+        let idx = pack_sum_ref(LiteralTag::Null as u16, payload);
+        self.root_type = ty::LITERAL;
+        self.root_index = idx;
+        LiteralRef(idx)
     }
 
     /// Push a `when_then` node.
     pub fn push_when_then(&mut self, r: WhenThen) -> WhenThenRef {
         let i = self.when_then_nodes.len() as u32;
         self.when_then_nodes.push(r);
+        self.root_type = ty::WHEN_THEN;
+        self.root_index = i;
         WhenThenRef(i)
     }
 
@@ -478,41 +503,58 @@ impl TreeBuilder {
     pub fn push_expr_identifier(&mut self, r: expr::Identifier) -> ExprRef {
         let payload = self.expr_identifier.len() as u32;
         self.expr_identifier.push(r);
-        ExprRef(pack_sum_ref(ExprTag::Identifier as u16, payload))
+        let idx = pack_sum_ref(ExprTag::Identifier as u16, payload);
+        self.root_type = ty::EXPR;
+        self.root_index = idx;
+        ExprRef(idx)
     }
 
     /// Push a `Literal` node of `expr`.
     pub fn push_expr_literal(&mut self, r: expr::Literal) -> ExprRef {
         let payload = self.expr_literal.len() as u32;
         self.expr_literal.push(r);
-        ExprRef(pack_sum_ref(ExprTag::Literal as u16, payload))
+        let idx = pack_sum_ref(ExprTag::Literal as u16, payload);
+        self.root_type = ty::EXPR;
+        self.root_index = idx;
+        ExprRef(idx)
     }
 
     /// Push a `BinaryOp` node of `expr`.
     pub fn push_expr_binary_op(&mut self, r: expr::BinaryOp) -> ExprRef {
         let payload = self.expr_binary_op.len() as u32;
         self.expr_binary_op.push(r);
-        ExprRef(pack_sum_ref(ExprTag::BinaryOp as u16, payload))
+        let idx = pack_sum_ref(ExprTag::BinaryOp as u16, payload);
+        self.root_type = ty::EXPR;
+        self.root_index = idx;
+        ExprRef(idx)
     }
 
     /// Push a `Case` node of `expr`.
     pub fn push_expr_case(&mut self, r: expr::Case) -> ExprRef {
         let payload = self.expr_case.len() as u32;
         self.expr_case.push(r);
-        ExprRef(pack_sum_ref(ExprTag::Case as u16, payload))
+        let idx = pack_sum_ref(ExprTag::Case as u16, payload);
+        self.root_type = ty::EXPR;
+        self.root_index = idx;
+        ExprRef(idx)
     }
 
     /// Push a `Cast` node of `expr`.
     pub fn push_expr_cast(&mut self, r: expr::Cast) -> ExprRef {
         let payload = self.expr_cast.len() as u32;
         self.expr_cast.push(r);
-        ExprRef(pack_sum_ref(ExprTag::Cast as u16, payload))
+        let idx = pack_sum_ref(ExprTag::Cast as u16, payload);
+        self.root_type = ty::EXPR;
+        self.root_index = idx;
+        ExprRef(idx)
     }
 
     /// Push a `file` node.
     pub fn push_file(&mut self, r: File) -> FileRef {
         let i = self.file_nodes.len() as u32;
         self.file_nodes.push(r);
+        self.root_type = ty::FILE;
+        self.root_index = i;
         FileRef(i)
     }
 
@@ -565,10 +607,11 @@ impl TreeBuilder {
         FlatSeq { off, len: items.len() as u32 }
     }
 
-    /// Freeze the buffers into a host-ready `FlatTree`. The buffers are
-    /// boxed in place and the header points at them; `release` (called
-    /// by the host, or by `Tree`'s Drop) frees everything.
-    pub fn finish(self, root: FileRef) -> *mut FlatTree {
+    /// Freezes the buffers into a host-ready `FlatTree` with the last pushed
+    /// node as the root. The buffers are boxed in place and the header points
+    /// at them. `release` (called by the host, or by `Drop` on `Tree`) frees
+    /// everything.
+    pub fn finish(self) -> *mut FlatTree {
         let mut sections: Vec<FlatSection> = Vec::new();
         macro_rules! sec {
             ($v:expr, $elem:ty) => {{
@@ -607,7 +650,8 @@ impl TreeBuilder {
         let sections = Box::into_raw(sections.into_boxed_slice());
         let tree = Box::new(FlatTree {
             section_count: 22,
-            root_index: root.0,
+            root_type: self.root_type,
+            root_index: self.root_index,
             schema: &SCHEMA,
             sections: sections as *mut FlatSection,
             release,
@@ -1404,7 +1448,6 @@ pub static SCHEMA: FlatSchema = FlatSchema {
     type_count: TYPES.len() as u16,
     ctor_count: CTORS.len() as u16,
     field_count: FIELDS.len() as u16,
-    root_type: 13,
     strings: SCHEMA_STRINGS.as_ptr(),
     types: TYPES.as_ptr(),
     ctors: CTORS.as_ptr(),
