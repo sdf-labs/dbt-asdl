@@ -419,8 +419,6 @@ pub struct FlatSchema {
     pub ctor_count: u16,
     /// Number of entries in `fields`.
     pub field_count: u16,
-    /// The type index of the root (`file`).
-    pub root_type: u16,
     /// Pointer to the schema's static UTF-8 string pool.
     pub strings: *const u8,
     /// Pointer to the schema's type descriptor table.
@@ -464,7 +462,9 @@ pub struct FlatSection {
 pub struct FlatTree {
     /// Number of sections in `sections`.
     pub section_count: u32,
-    /// The root node's index in the schema's `root_type` section.
+    /// The type index of the root node in `schema.types`.
+    pub root_type: u16,
+    /// The index of the root node in its section.
     pub root_index: u32,
     /// Pointer to the static schema descriptor of the library.
     pub schema: *const FlatSchema,
@@ -610,9 +610,6 @@ pub unsafe fn validate_schema(schema: &FlatSchema, abi_version: u32) -> Result<(
     }
     if schema.field_count > 0 && schema.fields.is_null() {
         return Err("null field table".to_string());
-    }
-    if schema.root_type >= schema.type_count {
-        return Err(format!("root type {} out of range", schema.root_type));
     }
     let strings = unsafe { table(schema.strings, schema.strings_len) };
     let types = unsafe { table(schema.types, schema.type_count as u32) };
@@ -882,7 +879,7 @@ pub struct Tree {
 
 impl Tree {
     /// Take ownership of a library-produced tree. `raw` must come from a
-    /// dialect library's `parse` (or from `convert_file`); the tree is freed
+    /// dialect library's `parse` (or from `TreeBuilder::finish`); the tree is freed
     /// through its own `release`.
     ///
     /// The version handshake is the loader's job, done once per library on
@@ -938,10 +935,10 @@ impl Tree {
         self.flat().resolve_name(name)
     }
 
-    /// The root node (the `file`).
+    /// The root node of this tree.
     pub fn root(&self) -> Node<'_> {
         let flat = self.flat();
-        Node::new(self.raw, flat.schema().root_type, flat.root_index)
+        Node::new(self.raw, flat.root_type, flat.root_index)
     }
 
     /// A type's index in the schema, by name. Linear scan over the type
@@ -1681,7 +1678,7 @@ mod tests {
             assert_eq!(size_of::<FlatSection>(), 16);
             assert_eq!(align_of::<FlatSection>(), 8);
 
-            assert_eq!(size_of::<FlatTree>(), 32);
+            assert_eq!(size_of::<FlatTree>(), 40);
             assert_eq!(align_of::<FlatTree>(), 8);
 
             assert_eq!(size_of::<FlatDialect>(), 40);

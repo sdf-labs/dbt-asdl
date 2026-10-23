@@ -278,10 +278,18 @@ module Edge {
         assert!(flat.convert.contains("b.push_bool_seq(&items)"));
         assert!(flat.convert.contains("b.push_op_seq(&items)"));
 
-        let missing_file = parse_str("module M { p = (int x) }").unwrap();
-        assert_eq!(
-            generate_flat_from_module(&missing_file, "m.asdl", fnv1a64(b"")).unwrap_err(),
-            CodegenError("flat layout requires a 'file' root type".to_string())
+        let without_file = parse_str("module M { p = (int x) }").unwrap();
+        let flat_no_file = generate_flat_from_module(&without_file, "m.asdl", fnv1a64(b""))
+            .expect("flat layout does not require a 'file' root type");
+        assert!(
+            flat_no_file
+                .flat
+                .contains("pub fn push_p(&mut self, r: P) -> PRef")
+        );
+        assert!(
+            flat_no_file
+                .convert
+                .contains("pub fn lower_p(b: &mut TreeBuilder, r: ast::P) -> PRef")
         );
     }
 }

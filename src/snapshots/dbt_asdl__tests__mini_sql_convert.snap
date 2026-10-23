@@ -8,17 +8,8 @@ use crate::*;
 #[allow(unused_imports)]
 use dbt_asdl::*;
 
-/// Deep-convert a finished arena/owned tree (behind the read API) into
-/// the flat boundary representation: one O(nodes) pass, children
-/// first. Dialect libraries that lower into the arena tree call this
-/// at the boundary.
-pub fn convert_file(root: ast::FileRef) -> *mut FlatTree {
-    let mut b = TreeBuilder::new();
-    let root = lower_file(&mut b, root);
-    b.finish(root)
-}
-
-fn lower_code_location(b: &mut TreeBuilder, r: ast::CodeLocation) -> CodeLocationRef {
+/// Lowers `r` into `b`.
+pub fn lower_code_location(b: &mut TreeBuilder, r: ast::CodeLocation) -> CodeLocationRef {
     let r = CodeLocation {
         lineno: OptInt::from(r.lineno()),
         col_offset: OptInt::from(r.col_offset()),
@@ -27,7 +18,8 @@ fn lower_code_location(b: &mut TreeBuilder, r: ast::CodeLocation) -> CodeLocatio
     b.push_code_location(r)
 }
 
-fn lower_span(b: &mut TreeBuilder, r: ast::Span) -> SpanRef {
+/// Lowers `r` into `b`.
+pub fn lower_span(b: &mut TreeBuilder, r: ast::Span) -> SpanRef {
     let r = Span {
         start: lower_code_location(b, r.start()),
         end: lower_code_location(b, r.end()),
@@ -35,7 +27,8 @@ fn lower_span(b: &mut TreeBuilder, r: ast::Span) -> SpanRef {
     b.push_span(r)
 }
 
-fn lower_data_type(b: &mut TreeBuilder, r: ast::DataTypeRef) -> DataTypeRef {
+/// Lowers `r` into `b`.
+pub fn lower_data_type(b: &mut TreeBuilder, r: ast::DataTypeRef) -> DataTypeRef {
     match r.view() {
         ast::DataTypeView::Int(v) => {
             let r = data_type::Int {
@@ -56,7 +49,8 @@ fn lower_data_type(b: &mut TreeBuilder, r: ast::DataTypeRef) -> DataTypeRef {
     }
 }
 
-fn lower_literal(b: &mut TreeBuilder, r: ast::LiteralRef) -> LiteralRef {
+/// Lowers `r` into `b`.
+pub fn lower_literal(b: &mut TreeBuilder, r: ast::LiteralRef) -> LiteralRef {
     match r.view() {
         ast::LiteralView::Number(v) => {
             let r = literal::Number {
@@ -81,7 +75,8 @@ fn lower_literal(b: &mut TreeBuilder, r: ast::LiteralRef) -> LiteralRef {
     }
 }
 
-fn lower_when_then(b: &mut TreeBuilder, r: ast::WhenThenRef) -> WhenThenRef {
+/// Lowers `r` into `b`.
+pub fn lower_when_then(b: &mut TreeBuilder, r: ast::WhenThenRef) -> WhenThenRef {
     let r = WhenThen {
         when: lower_expr(b, r.when()),
         then: lower_expr(b, r.then()),
@@ -90,7 +85,8 @@ fn lower_when_then(b: &mut TreeBuilder, r: ast::WhenThenRef) -> WhenThenRef {
     b.push_when_then(r)
 }
 
-fn lower_expr(b: &mut TreeBuilder, r: ast::ExprRef) -> ExprRef {
+/// Lowers `r` into `b`.
+pub fn lower_expr(b: &mut TreeBuilder, r: ast::ExprRef) -> ExprRef {
     match r.view() {
         ast::ExprView::Identifier(v) => {
             let r = expr::Identifier {
@@ -138,7 +134,8 @@ fn lower_expr(b: &mut TreeBuilder, r: ast::ExprRef) -> ExprRef {
     }
 }
 
-fn lower_file(b: &mut TreeBuilder, r: ast::FileRef) -> FileRef {
+/// Lowers `r` into `b`.
+pub fn lower_file(b: &mut TreeBuilder, r: ast::FileRef) -> FileRef {
     let r = File {
         exprs: { let items: Vec<ExprRef> = r.exprs().iter().map(|x| lower_expr(b, x)).collect(); b.push_expr_seq(&items) },
         spans: { let items: Vec<SpanRef> = r.spans().iter().map(|x| lower_span(b, *x)).collect(); b.push_span_seq(&items) },

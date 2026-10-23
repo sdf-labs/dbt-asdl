@@ -625,8 +625,8 @@ mod gen_flat {
 
     pub fn lower_file_with_builder(root: crate::ast::FileRef<'_>) -> *mut dbt_asdl::FlatTree {
         let mut b = TreeBuilder::new();
-        let file_ref = lower_file(&mut b, root);
-        b.finish(file_ref)
+        lower_file(&mut b, root);
+        b.finish()
     }
 }
 
@@ -1237,8 +1237,8 @@ fn build_flat_tree_via_builder() -> *mut dbt_asdl::FlatTree {
     });
     let spans = b.push_span_seq(&[file_span_0, file_span_1]);
 
-    let root = b.push_file(File { exprs, spans });
-    b.finish(root)
+    b.push_file(File { exprs, spans });
+    b.finish()
 }
 
 fn build_flat_tree_via_lower_file() -> *mut dbt_asdl::FlatTree {
@@ -1437,8 +1437,18 @@ fn flat_cpp_shim_summarizes_lowered_arena_and_owned_trees() {
         spans: vec![span_at(1, 50)],
     };
 
-    let raw_from_lower = gen_flat::lower_file_with_builder(FileRef::from(arena_file));
-    let raw_from_convert = gen_flat::convert_file(FileRef::from(&owned_file));
+    let raw_from_arena = gen_flat::lower_file_with_builder(FileRef::from(arena_file));
+    let raw_from_owned = gen_flat::lower_file_with_builder(FileRef::from(&owned_file));
+
+    let expr_tree = unsafe {
+        let mut b = gen_flat::TreeBuilder::new();
+        gen_flat::lower_expr(&mut b, ExprRef::from(&owned_file.exprs[0]));
+        dbt_asdl::Tree::from_raw(b.finish())
+    }
+    .expect("valid expr-rooted flat tree");
+    assert_eq!(expr_tree.root().type_name(), "expr");
+    assert_eq!(expr_tree.root().kind(), Some("Case"));
+    assert_eq!(expr_tree.to_sexpr(), owned_file.exprs[0].to_sexpr());
 
     let rust_tree = unsafe {
         dbt_asdl::Tree::from_raw(gen_flat::lower_file_with_builder(FileRef::from(arena_file)))
@@ -1446,7 +1456,7 @@ fn flat_cpp_shim_summarizes_lowered_arena_and_owned_trees() {
     .expect("valid flat tree");
     let expected_sexpr = rust_tree.to_sexpr();
 
-    for raw in [raw_from_lower, raw_from_convert] {
+    for raw in [raw_from_arena, raw_from_owned] {
         let mut summary = CppWalkSummary::default();
         let mut sexpr_buf = vec![0u8; 4096];
         let mut sexpr_len = 0usize;

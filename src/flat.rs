@@ -540,6 +540,8 @@ fn emit_builder(
     for (name, elem) in &layout.sections {
         emit!(w, "    {name}: Vec<{elem}>,");
     }
+    emit!(w, "    root_type: u16,");
+    emit!(w, "    root_index: u32,");
     emit!(w, "}}");
     emit!(w, "");
     emit!(w, "#[cfg(feature = \"builder\")]");
@@ -550,6 +552,8 @@ fn emit_builder(
     for (name, _) in &layout.sections {
         emit!(w, "            {name}: Vec::new(),");
     }
+    emit!(w, "            root_type: NONE_U16,");
+    emit!(w, "            root_index: NONE_U32,");
     emit!(w, "        }}");
     emit!(w, "    }}");
     emit!(w, "");
@@ -574,6 +578,8 @@ fn emit_builder(
             );
             emit!(w, "        let i = self.{}_nodes.len() as u32;", info.name);
             emit!(w, "        self.{}_nodes.push(r);", info.name);
+            emit!(w, "        self.root_type = ty::{};", info.name.to_uppercase());
+            emit!(w, "        self.root_index = i;");
             emit!(w, "        {}Ref(i)", info.rust);
             emit!(w, "    }}");
         } else if info.kind == InfoKind::CompoundSum {
@@ -594,10 +600,12 @@ fn emit_builder(
                     emit!(w, "        self.{}_{uname}.push(r);", info.name);
                     emit!(
                         w,
-                        "        {}Ref(pack_sum_ref({}Tag::{cname} as u16, payload))",
-                        info.rust,
+                        "        let idx = pack_sum_ref({}Tag::{cname} as u16, payload);",
                         info.rust
                     );
+                    emit!(w, "        self.root_type = ty::{};", info.name.to_uppercase());
+                    emit!(w, "        self.root_index = idx;");
+                    emit!(w, "        {}Ref(idx)", info.rust);
                     emit!(w, "    }}");
                 } else {
                     emit!(w, "    /// Push a bare `{cname}` node of `{}`.", info.name);
@@ -609,10 +617,12 @@ fn emit_builder(
                     );
                     emit!(
                         w,
-                        "        {}Ref(pack_sum_ref({}Tag::{cname} as u16, 0))",
-                        info.rust,
+                        "        let idx = pack_sum_ref({}Tag::{cname} as u16, 0);",
                         info.rust
                     );
+                    emit!(w, "        self.root_type = ty::{};", info.name.to_uppercase());
+                    emit!(w, "        self.root_index = idx;");
+                    emit!(w, "        {}Ref(idx)", info.rust);
                     emit!(w, "    }}");
                 }
             }
@@ -630,10 +640,20 @@ fn emit_builder(
     }
 
     emit!(w, "");
-    emit!(w, "    /// Freeze the buffers into a host-ready `FlatTree`. The buffers are");
-    emit!(w, "    /// boxed in place and the header points at them; `release` (called");
-    emit!(w, "    /// by the host, or by `Tree`'s Drop) frees everything.");
-    emit!(w, "    pub fn finish(self, root: FileRef) -> *mut FlatTree {{");
+    emit!(
+        w,
+        "    /// Freezes the buffers into a host-ready `FlatTree` with the last pushed"
+    );
+    emit!(
+        w,
+        "    /// node as the root. The buffers are boxed in place and the header points"
+    );
+    emit!(
+        w,
+        "    /// at them. `release` (called by the host, or by `Drop` on `Tree`) frees"
+    );
+    emit!(w, "    /// everything.");
+    emit!(w, "    pub fn finish(self) -> *mut FlatTree {{");
     emit!(w, "        let mut sections: Vec<FlatSection> = Vec::new();");
     emit!(w, "        macro_rules! sec {{");
     emit!(w, "            ($v:expr, $elem:ty) => {{{{");
@@ -653,7 +673,8 @@ fn emit_builder(
     emit!(w, "        let sections = Box::into_raw(sections.into_boxed_slice());");
     emit!(w, "        let tree = Box::new(FlatTree {{");
     emit!(w, "            section_count: {},", layout.sections.len());
-    emit!(w, "            root_index: root.0,");
+    emit!(w, "            root_type: self.root_type,");
+    emit!(w, "            root_index: self.root_index,");
     emit!(w, "            schema: &SCHEMA,");
     emit!(w, "            sections: sections as *mut FlatSection,");
     emit!(w, "            release,");
@@ -962,10 +983,6 @@ fn emit_schema(
     emit!(w, "];");
     emit!(w, "");
 
-    let Some(&root_type) = layout.type_index.get("file") else {
-        return Err(CodegenError("flat layout requires a 'file' root type".to_string()));
-    };
-
     emit!(w, "/// The schema of the sql.asdl this build was generated from.");
     emit!(w, "#[cfg(feature = \"builder\")]");
     emit!(w, "pub static SCHEMA: FlatSchema = FlatSchema {{");
@@ -976,7 +993,6 @@ fn emit_schema(
     emit!(w, "    type_count: TYPES.len() as u16,");
     emit!(w, "    ctor_count: CTORS.len() as u16,");
     emit!(w, "    field_count: FIELDS.len() as u16,");
-    emit!(w, "    root_type: {root_type},");
     emit!(w, "    strings: SCHEMA_STRINGS.as_ptr(),");
     emit!(w, "    types: TYPES.as_ptr(),");
     emit!(w, "    ctors: CTORS.as_ptr(),");
@@ -1332,16 +1348,6 @@ fn emit_convert(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, 
     emit!(w, "use crate::*;");
     emit!(w, "#[allow(unused_imports)]");
     emit!(w, "use dbt_asdl::*;");
-    emit!(w, "");
-    emit!(w, "/// Deep-convert a finished arena/owned tree (behind the read API) into");
-    emit!(w, "/// the flat boundary representation: one O(nodes) pass, children");
-    emit!(w, "/// first. Dialect libraries that lower into the arena tree call this");
-    emit!(w, "/// at the boundary.");
-    emit!(w, "pub fn convert_file(root: ast::FileRef) -> *mut FlatTree {{");
-    emit!(w, "    let mut b = TreeBuilder::new();");
-    emit!(w, "    let root = lower_file(&mut b, root);");
-    emit!(w, "    b.finish(root)");
-    emit!(w, "}}");
 
     for d in &mod_node.dfns {
         let info = &infos[&d.name];
@@ -1355,9 +1361,10 @@ fn emit_convert(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, 
             } else {
                 format!("ast::{}Ref", info.rust)
             };
+            emit!(w, "/// Lowers `r` into `b`.");
             emit!(
                 w,
-                "fn lower_{}(b: &mut TreeBuilder, r: {arg}) -> {}Ref {{",
+                "pub fn lower_{}(b: &mut TreeBuilder, r: {arg}) -> {}Ref {{",
                 info.name,
                 info.rust
             );
@@ -1373,7 +1380,12 @@ fn emit_convert(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, 
             emit!(w, "}}");
         } else {
             let r = &info.rust;
-            emit!(w, "fn lower_{}(b: &mut TreeBuilder, r: ast::{r}Ref) -> {r}Ref {{", info.name);
+            emit!(w, "/// Lowers `r` into `b`.");
+            emit!(
+                w,
+                "pub fn lower_{}(b: &mut TreeBuilder, r: ast::{r}Ref) -> {r}Ref {{",
+                info.name
+            );
             emit!(w, "    match r.view() {{");
             for c in &info.constructors {
                 let cname = camel(&c.name);
@@ -1521,8 +1533,7 @@ pub(crate) fn generate_flat_from_module(
 /// - `gen_convert.rs`: functions that convert an arena or owned AST (through the
 ///   read-only view API) into the flat boundary representation.
 ///
-/// The ASDL specification must define a `file` root type. This function returns
-/// the paths of the two generated files.
+/// This function returns the paths of the two generated files.
 ///
 /// # Errors
 ///
@@ -1916,9 +1927,6 @@ pub(crate) fn generate_cpp_flat_from_module(
     validate(mod_node, &infos)?;
     compute_shared(&order, &mut infos);
     let _layout = Layout::build(mod_node, &mut infos);
-    if !infos.contains_key("file") {
-        return Err(CodegenError("flat layout requires a 'file' root type".to_string()));
-    }
 
     let mod_snake = uncamel(&mod_node.name);
     let ns = cpp_field(&mod_snake);

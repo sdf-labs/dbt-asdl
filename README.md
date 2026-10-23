@@ -121,7 +121,7 @@ fn example(span: Span) {
 
 ### Flat Tree in Rust
 
-`gen_convert.rs` lowers any `views::FileRef` into a `*mut dbt_asdl::FlatTree`. On the consumer side, `dbt_asdl::Tree::from_raw` wraps the pointer in an RAII handle with untyped `Node` cursors and `@stable` typed projections (`StableNodeExt`):
+`gen_convert.rs` lowers any view node into a `TreeBuilder`, and `TreeBuilder::finish` freezes the tree with the last pushed node as the root. On the consumer side, `dbt_asdl::Tree::from_raw` wraps the pointer in an RAII handle with untyped `Node` cursors and `@stable` typed projections (`StableNodeExt`):
 
 ```rust
 pub mod gen_flat {
@@ -136,7 +136,9 @@ pub mod gen_flat {
 fn inspect_flat_in_rust(file: views::FileRef<'_>) {
     use gen_flat::{DataTypeTag, StableNodeExt};
 
-    let raw: *mut dbt_asdl::FlatTree = gen_flat::convert_file(file);
+    let mut b = gen_flat::TreeBuilder::new();
+    gen_flat::lower_file(&mut b, file);
+    let raw: *mut dbt_asdl::FlatTree = b.finish();
     let tree = unsafe { dbt_asdl::Tree::from_raw(raw) }.expect("valid flat tree");
 
     let root: dbt_asdl::Node<'_> = tree.root();
@@ -242,7 +244,7 @@ target_link_libraries(my_consumer PRIVATE dbt_asdl::dbt_asdl)
 
 ## C++ API Usage
 
-The Rust producer converts an AST into a `*mut dbt_asdl::FlatTree` with `convert_file` (or `TreeBuilder::finish`) and passes the pointer to C++:
+The Rust producer lowers an AST into a `TreeBuilder`, calls `TreeBuilder::finish` to obtain a `*mut dbt_asdl::FlatTree`, and passes the pointer to C++:
 
 ```rust
 unsafe extern "C" {
@@ -250,7 +252,9 @@ unsafe extern "C" {
 }
 
 pub fn run_cpp_consumer(file: views::FileRef<'_>) -> i64 {
-    let raw: *mut dbt_asdl::FlatTree = gen_flat::convert_file(file);
+    let mut b = gen_flat::TreeBuilder::new();
+    gen_flat::lower_file(&mut b, file);
+    let raw: *mut dbt_asdl::FlatTree = b.finish();
     unsafe { inspect_tree(raw) }
 }
 ```
