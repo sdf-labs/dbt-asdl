@@ -31,10 +31,10 @@ The C++ runtime header (`include/dbt_asdl/flat_runtime.hpp`) wraps `*mut FlatTre
 
 ```toml
 [dependencies]
-dbt-asdl = "1.0"
+dbt-asdl = "2.0"
 
 [build-dependencies]
-dbt-asdl = "1.0"
+dbt-asdl = "2.0"
 ```
 
 2. Call `dbt_asdl::codegen::rust::generate_trees` from `build.rs`:
@@ -168,11 +168,11 @@ When Cargo drives the build, use `build.rs` and the `cc` crate.
 
 ```toml
 [dependencies]
-dbt-asdl = "1.0"
+dbt-asdl = "2.0"
 
 [build-dependencies]
 cc = "1"
-dbt-asdl = "1.0"
+dbt-asdl = "2.0"
 ```
 
 2. Generate the flat Rust AST, the C++ runtime header, and the flat C++ AST header in `build.rs`:

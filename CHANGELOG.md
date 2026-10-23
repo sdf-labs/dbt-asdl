@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0](https://github.com/sdf-labs/dbt-asdl/compare/v1.0.1...v2.0.0) - 2026-10-23
+
+### Other
+
+- Support arbitrary root types per FlatTree ([#29](https://github.com/sdf-labs/dbt-asdl/pull/29))
+- Support scalar and simple-sum sequences in flat AST codegen ([#27](https://github.com/sdf-labs/dbt-asdl/pull/27))
+
 ## [1.0.1](https://github.com/sdf-labs/dbt-asdl/compare/v1.0.0...v1.0.1) - 2026-10-22
 
 ### Other
