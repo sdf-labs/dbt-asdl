@@ -245,18 +245,38 @@ module Edge {
 
     #[test]
     fn validates_flat_restrictions() {
-        let scalar_seq = parse_str("module M { p = (int* x) file = (p* ps) }").unwrap();
-        assert_eq!(
-            generate_flat_from_module(&scalar_seq, "m.asdl", fnv1a64(b"")).unwrap_err(),
-            CodegenError("p.x: sequences of scalars are unsupported".to_string())
+        let scalar_and_simple_sum_seq = parse_str(
+            "module M { op = Add | Sub @stable p = (byte* bs, int* is, long* ls, bool* flags, op* ops) file = (p* ps) }",
+        )
+        .unwrap();
+        let flat = generate_flat_from_module(&scalar_and_simple_sum_seq, "m.asdl", fnv1a64(b""))
+            .expect("scalar and simple-sum sequences are supported");
+        assert!(
+            flat.flat
+                .contains("pub fn push_byte_seq(&mut self, items: &[u8]) -> FlatSeq")
         );
-
-        let simple_sum_seq =
-            parse_str("module M { op = Add | Sub p = (op* ops) file = (p* ps) }").unwrap();
-        assert_eq!(
-            generate_flat_from_module(&simple_sum_seq, "m.asdl", fnv1a64(b"")).unwrap_err(),
-            CodegenError("p.ops: sequences of simple sums are unsupported".to_string())
+        assert!(
+            flat.flat
+                .contains("pub fn push_int_seq(&mut self, items: &[i32]) -> FlatSeq")
         );
+        assert!(
+            flat.flat
+                .contains("pub fn push_long_seq(&mut self, items: &[i64]) -> FlatSeq")
+        );
+        assert!(
+            flat.flat
+                .contains("pub fn push_bool_seq(&mut self, items: &[u8]) -> FlatSeq")
+        );
+        assert!(
+            flat.flat
+                .contains("pub fn push_op_seq(&mut self, items: &[u8]) -> FlatSeq")
+        );
+        assert!(flat.flat.contains("ops: FlatSeq<op(u8)>"));
+        assert!(flat.convert.contains("b.push_byte_seq(r.bs())"));
+        assert!(flat.convert.contains("b.push_int_seq(r.is())"));
+        assert!(flat.convert.contains("b.push_long_seq(r.ls())"));
+        assert!(flat.convert.contains("b.push_bool_seq(&items)"));
+        assert!(flat.convert.contains("b.push_op_seq(&items)"));
 
         let missing_file = parse_str("module M { p = (int x) }").unwrap();
         assert_eq!(

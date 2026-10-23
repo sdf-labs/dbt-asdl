@@ -313,11 +313,13 @@ pub mod expr {
         pub e: Box<super::Expr>,
         pub to: Box<super::DataType>,
         pub notes: Vec<Box<str>>,
+        pub flags: Vec<i32>,
+        pub ops: Vec<super::BinOp>,
     }
 
     impl PartialEq for Cast {
         fn eq(&self, other: &Self) -> bool {
-            self.e == other.e && self.to == other.to && self.notes == other.notes
+            self.e == other.e && self.to == other.to && self.notes == other.notes && self.flags == other.flags && self.ops == other.ops
         }
     }
 }

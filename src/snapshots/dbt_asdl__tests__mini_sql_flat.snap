@@ -12,7 +12,7 @@ pub const ABI_VERSION: u32 = 1;
 /// FNV-1a/64 of the asdl source bytes this build was generated from.
 /// Library-side: the host reads the hash from the descriptor.
 #[cfg(feature = "builder")]
-pub const SCHEMA_HASH: u64 = 0x8c1b3eb1b28202a4;
+pub const SCHEMA_HASH: u64 = 0xff4d5ecffde8e1a1;
 
 // A typed node reference per product and compound sum: a
 // repr(transparent) u32 index into the type's node section. NONE is
@@ -333,6 +333,8 @@ pub mod expr {
         pub e: ExprRef,
         pub to: DataTypeRef,
         pub notes: FlatSeq,
+        pub flags: FlatSeq,
+        pub ops: FlatSeq,
     }
 }
 
@@ -372,7 +374,9 @@ pub struct TreeBuilder {
     file_nodes: Vec<File>,
     identifier_seq: Vec<FlatStr>,
     string_seq: Vec<FlatStr>,
+    int_seq: Vec<i32>,
     span_seq: Vec<SpanRef>,
+    bin_op_seq: Vec<u8>,
     when_then_seq: Vec<WhenThenRef>,
     expr_seq: Vec<ExprRef>,
 }
@@ -399,7 +403,9 @@ impl TreeBuilder {
             file_nodes: Vec::new(),
             identifier_seq: Vec::new(),
             string_seq: Vec::new(),
+            int_seq: Vec::new(),
             span_seq: Vec::new(),
+            bin_op_seq: Vec::new(),
             when_then_seq: Vec::new(),
             expr_seq: Vec::new(),
         }
@@ -524,10 +530,24 @@ impl TreeBuilder {
         FlatSeq { off, len: items.len() as u32 }
     }
 
+    /// A sequence of `int` into the pool.
+    pub fn push_int_seq(&mut self, items: &[i32]) -> FlatSeq {
+        let off = self.int_seq.len() as u32;
+        self.int_seq.extend_from_slice(items);
+        FlatSeq { off, len: items.len() as u32 }
+    }
+
     /// A sequence of `span` into the pool.
     pub fn push_span_seq(&mut self, items: &[SpanRef]) -> FlatSeq {
         let off = self.span_seq.len() as u32;
         self.span_seq.extend_from_slice(items);
+        FlatSeq { off, len: items.len() as u32 }
+    }
+
+    /// A sequence of `bin_op` into the pool.
+    pub fn push_bin_op_seq(&mut self, items: &[u8]) -> FlatSeq {
+        let off = self.bin_op_seq.len() as u32;
+        self.bin_op_seq.extend_from_slice(items);
         FlatSeq { off, len: items.len() as u32 }
     }
 
@@ -579,12 +599,14 @@ impl TreeBuilder {
         sec!(self.file_nodes, File);
         sec!(self.identifier_seq, FlatStr);
         sec!(self.string_seq, FlatStr);
+        sec!(self.int_seq, i32);
         sec!(self.span_seq, SpanRef);
+        sec!(self.bin_op_seq, u8);
         sec!(self.when_then_seq, WhenThenRef);
         sec!(self.expr_seq, ExprRef);
         let sections = Box::into_raw(sections.into_boxed_slice());
         let tree = Box::new(FlatTree {
-            section_count: 20,
+            section_count: 22,
             root_index: root.0,
             schema: &SCHEMA,
             sections: sections as *mut FlatSection,
@@ -702,15 +724,25 @@ unsafe extern "C" fn release(tree: *mut FlatTree) {
                 }
                 17 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut SpanRef, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut i32, len),
                     ));
                 }
                 18 => {
                     drop(Box::from_raw(
-                        std::ptr::slice_from_raw_parts_mut(ptr as *mut WhenThenRef, len),
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut SpanRef, len),
                     ));
                 }
                 19 => {
+                    drop(Box::from_raw(
+                        std::ptr::slice_from_raw_parts_mut(ptr, len),
+                    ));
+                }
+                20 => {
+                    drop(Box::from_raw(
+                        std::ptr::slice_from_raw_parts_mut(ptr as *mut WhenThenRef, len),
+                    ));
+                }
+                21 => {
                     drop(Box::from_raw(
                         std::ptr::slice_from_raw_parts_mut(ptr as *mut ExprRef, len),
                     ));
@@ -854,9 +886,9 @@ pub fn freeze_stable_layout() -> String {
 #[cfg(feature = "builder")]
 static SCHEMA_STRINGS: &[u8] = b"\
     linenocol_offsetindexstartendspannullableunsignedwidthtextvaluewhenthenopp\
-    artsleftrightoperandcaseselseetonotesexprsspansAddSubEqIntBoolNumberString\
-    NullIdentifierLiteralBinaryOpCaseCastidentifierstringbyteintlongboolcode_l\
-    ocationbin_opdata_typeliteralwhen_thenexprfile";
+    artsleftrightoperandcaseselseetonotesflagsopsexprsspansAddSubEqIntBoolNumb\
+    erStringNullIdentifierLiteralBinaryOpCaseCastidentifierstringbyteintlongbo\
+    olcode_locationbin_opdata_typeliteralwhen_thenexprfile";
 
 #[cfg(feature = "builder")]
 static FIELDS: &[FlatFieldInfo] = &[
@@ -1072,12 +1104,24 @@ static FIELDS: &[FlatFieldInfo] = &[
     },
     FlatFieldInfo {
         name: FlatName { off: 111, len: 5 },
+        offset: std::mem::offset_of!(expr::Cast, flags) as u16,
+        type_index: 3,
+        enc: FlatEnc::Seq as u8,
+    },
+    FlatFieldInfo {
+        name: FlatName { off: 116, len: 3 },
+        offset: std::mem::offset_of!(expr::Cast, ops) as u16,
+        type_index: 8,
+        enc: FlatEnc::Seq as u8,
+    },
+    FlatFieldInfo {
+        name: FlatName { off: 119, len: 5 },
         offset: std::mem::offset_of!(File, exprs) as u16,
         type_index: 12,
         enc: FlatEnc::Seq as u8,
     },
     FlatFieldInfo {
-        name: FlatName { off: 116, len: 5 },
+        name: FlatName { off: 124, len: 5 },
         offset: std::mem::offset_of!(File, spans) as u16,
         type_index: 7,
         enc: FlatEnc::Seq as u8,
@@ -1087,7 +1131,7 @@ static FIELDS: &[FlatFieldInfo] = &[
 #[cfg(feature = "builder")]
 static CTORS: &[FlatCtorInfo] = &[
     FlatCtorInfo {
-        name: FlatName { off: 121, len: 3 },
+        name: FlatName { off: 129, len: 3 },
         tag: 0,
         type_index: 8,
         payload_section: NONE_U16,
@@ -1095,7 +1139,7 @@ static CTORS: &[FlatCtorInfo] = &[
         field_count: 0,
     },
     FlatCtorInfo {
-        name: FlatName { off: 124, len: 3 },
+        name: FlatName { off: 132, len: 3 },
         tag: 1,
         type_index: 8,
         payload_section: NONE_U16,
@@ -1103,7 +1147,7 @@ static CTORS: &[FlatCtorInfo] = &[
         field_count: 0,
     },
     FlatCtorInfo {
-        name: FlatName { off: 127, len: 2 },
+        name: FlatName { off: 135, len: 2 },
         tag: 2,
         type_index: 8,
         payload_section: NONE_U16,
@@ -1111,7 +1155,7 @@ static CTORS: &[FlatCtorInfo] = &[
         field_count: 0,
     },
     FlatCtorInfo {
-        name: FlatName { off: 129, len: 3 },
+        name: FlatName { off: 137, len: 3 },
         tag: 0,
         type_index: 9,
         payload_section: 3,
@@ -1119,7 +1163,7 @@ static CTORS: &[FlatCtorInfo] = &[
         field_count: 4,
     },
     FlatCtorInfo {
-        name: FlatName { off: 132, len: 4 },
+        name: FlatName { off: 140, len: 4 },
         tag: 1,
         type_index: 9,
         payload_section: 4,
@@ -1127,7 +1171,7 @@ static CTORS: &[FlatCtorInfo] = &[
         field_count: 2,
     },
     FlatCtorInfo {
-        name: FlatName { off: 136, len: 6 },
+        name: FlatName { off: 144, len: 6 },
         tag: 0,
         type_index: 10,
         payload_section: 5,
@@ -1135,7 +1179,7 @@ static CTORS: &[FlatCtorInfo] = &[
         field_count: 2,
     },
     FlatCtorInfo {
-        name: FlatName { off: 142, len: 6 },
+        name: FlatName { off: 150, len: 6 },
         tag: 1,
         type_index: 10,
         payload_section: 6,
@@ -1143,7 +1187,7 @@ static CTORS: &[FlatCtorInfo] = &[
         field_count: 2,
     },
     FlatCtorInfo {
-        name: FlatName { off: 148, len: 4 },
+        name: FlatName { off: 156, len: 4 },
         tag: 2,
         type_index: 10,
         payload_section: 7,
@@ -1151,7 +1195,7 @@ static CTORS: &[FlatCtorInfo] = &[
         field_count: 1,
     },
     FlatCtorInfo {
-        name: FlatName { off: 152, len: 10 },
+        name: FlatName { off: 160, len: 10 },
         tag: 0,
         type_index: 12,
         payload_section: 9,
@@ -1159,7 +1203,7 @@ static CTORS: &[FlatCtorInfo] = &[
         field_count: 2,
     },
     FlatCtorInfo {
-        name: FlatName { off: 162, len: 7 },
+        name: FlatName { off: 170, len: 7 },
         tag: 1,
         type_index: 12,
         payload_section: 10,
@@ -1167,7 +1211,7 @@ static CTORS: &[FlatCtorInfo] = &[
         field_count: 2,
     },
     FlatCtorInfo {
-        name: FlatName { off: 169, len: 8 },
+        name: FlatName { off: 177, len: 8 },
         tag: 2,
         type_index: 12,
         payload_section: 11,
@@ -1175,7 +1219,7 @@ static CTORS: &[FlatCtorInfo] = &[
         field_count: 4,
     },
     FlatCtorInfo {
-        name: FlatName { off: 177, len: 4 },
+        name: FlatName { off: 185, len: 4 },
         tag: 3,
         type_index: 12,
         payload_section: 12,
@@ -1183,19 +1227,19 @@ static CTORS: &[FlatCtorInfo] = &[
         field_count: 4,
     },
     FlatCtorInfo {
-        name: FlatName { off: 181, len: 4 },
+        name: FlatName { off: 189, len: 4 },
         tag: 4,
         type_index: 12,
         payload_section: 13,
         field_off: 31,
-        field_count: 4,
+        field_count: 6,
     },
 ];
 
 #[cfg(feature = "builder")]
 static TYPES: &[FlatTypeInfo] = &[
     FlatTypeInfo {
-        name: FlatName { off: 185, len: 10 },
+        name: FlatName { off: 193, len: 10 },
         kind: FlatTypeKind::Builtin as u8,
         enc: FlatEnc::Str as u8,
         node_section: NONE_U16,
@@ -1206,7 +1250,7 @@ static TYPES: &[FlatTypeInfo] = &[
         field_count: 0,
     },
     FlatTypeInfo {
-        name: FlatName { off: 195, len: 6 },
+        name: FlatName { off: 203, len: 6 },
         kind: FlatTypeKind::Builtin as u8,
         enc: FlatEnc::Str as u8,
         node_section: NONE_U16,
@@ -1217,7 +1261,7 @@ static TYPES: &[FlatTypeInfo] = &[
         field_count: 0,
     },
     FlatTypeInfo {
-        name: FlatName { off: 201, len: 4 },
+        name: FlatName { off: 209, len: 4 },
         kind: FlatTypeKind::Builtin as u8,
         enc: FlatEnc::Byte as u8,
         node_section: NONE_U16,
@@ -1228,18 +1272,18 @@ static TYPES: &[FlatTypeInfo] = &[
         field_count: 0,
     },
     FlatTypeInfo {
-        name: FlatName { off: 205, len: 3 },
+        name: FlatName { off: 213, len: 3 },
         kind: FlatTypeKind::Builtin as u8,
         enc: FlatEnc::Int as u8,
         node_section: NONE_U16,
-        seq_section: NONE_U16,
+        seq_section: 17,
         ctor_off: 0,
         ctor_count: 0,
         field_off: 0,
         field_count: 0,
     },
     FlatTypeInfo {
-        name: FlatName { off: 208, len: 4 },
+        name: FlatName { off: 216, len: 4 },
         kind: FlatTypeKind::Builtin as u8,
         enc: FlatEnc::Long as u8,
         node_section: NONE_U16,
@@ -1250,7 +1294,7 @@ static TYPES: &[FlatTypeInfo] = &[
         field_count: 0,
     },
     FlatTypeInfo {
-        name: FlatName { off: 212, len: 4 },
+        name: FlatName { off: 220, len: 4 },
         kind: FlatTypeKind::Builtin as u8,
         enc: FlatEnc::Bool as u8,
         node_section: NONE_U16,
@@ -1261,7 +1305,7 @@ static TYPES: &[FlatTypeInfo] = &[
         field_count: 0,
     },
     FlatTypeInfo {
-        name: FlatName { off: 216, len: 13 },
+        name: FlatName { off: 224, len: 13 },
         kind: FlatTypeKind::Product as u8,
         enc: FlatEnc::Node as u8,
         node_section: 1,
@@ -1276,25 +1320,25 @@ static TYPES: &[FlatTypeInfo] = &[
         kind: FlatTypeKind::Product as u8,
         enc: FlatEnc::Node as u8,
         node_section: 2,
-        seq_section: 17,
+        seq_section: 18,
         ctor_off: 0,
         ctor_count: 0,
         field_off: 3,
         field_count: 2,
     },
     FlatTypeInfo {
-        name: FlatName { off: 229, len: 6 },
+        name: FlatName { off: 237, len: 6 },
         kind: FlatTypeKind::SimpleSum as u8,
         enc: FlatEnc::SimpleSum as u8,
         node_section: NONE_U16,
-        seq_section: NONE_U16,
+        seq_section: 19,
         ctor_off: 0,
         ctor_count: 3,
         field_off: 0,
         field_count: 0,
     },
     FlatTypeInfo {
-        name: FlatName { off: 235, len: 9 },
+        name: FlatName { off: 243, len: 9 },
         kind: FlatTypeKind::Sum as u8,
         enc: FlatEnc::Node as u8,
         node_section: NONE_U16,
@@ -1305,7 +1349,7 @@ static TYPES: &[FlatTypeInfo] = &[
         field_count: 0,
     },
     FlatTypeInfo {
-        name: FlatName { off: 244, len: 7 },
+        name: FlatName { off: 252, len: 7 },
         kind: FlatTypeKind::Sum as u8,
         enc: FlatEnc::Node as u8,
         node_section: NONE_U16,
@@ -1316,36 +1360,36 @@ static TYPES: &[FlatTypeInfo] = &[
         field_count: 0,
     },
     FlatTypeInfo {
-        name: FlatName { off: 251, len: 9 },
+        name: FlatName { off: 259, len: 9 },
         kind: FlatTypeKind::Product as u8,
         enc: FlatEnc::Node as u8,
         node_section: 8,
-        seq_section: 18,
+        seq_section: 20,
         ctor_off: 0,
         ctor_count: 0,
         field_off: 16,
         field_count: 3,
     },
     FlatTypeInfo {
-        name: FlatName { off: 260, len: 4 },
+        name: FlatName { off: 268, len: 4 },
         kind: FlatTypeKind::Sum as u8,
         enc: FlatEnc::Node as u8,
         node_section: NONE_U16,
-        seq_section: 19,
+        seq_section: 21,
         ctor_off: 8,
         ctor_count: 5,
         field_off: 0,
         field_count: 0,
     },
     FlatTypeInfo {
-        name: FlatName { off: 264, len: 4 },
+        name: FlatName { off: 272, len: 4 },
         kind: FlatTypeKind::Product as u8,
         enc: FlatEnc::Node as u8,
         node_section: 14,
         seq_section: NONE_U16,
         ctor_off: 0,
         ctor_count: 0,
-        field_off: 35,
+        field_off: 37,
         field_count: 2,
     },
 ];

@@ -125,6 +125,8 @@ fn build_via_convert() -> *mut FlatTree {
         e: case_expr,
         to: int_ty,
         notes: bvec![in &b; &*b.alloc_str("narrow"), &*b.alloc_str("checked")],
+        flags: bvec![in &b; 10, 20],
+        ops: bvec![in &b; ast::BinOp::Add, ast::BinOp::Sub],
     })));
 
     let bool_ty = b.alloc(arena::DataType::Bool(b.alloc(arena::data_type::Bool {
@@ -136,6 +138,8 @@ fn build_via_convert() -> *mut FlatTree {
         e: ident_expr,
         to: bool_ty,
         notes: BVec::new_in(&b),
+        flags: BVec::new_in(&b),
+        ops: BVec::new_in(&b),
     })));
 
     let extra_span = ast::Span {
@@ -257,12 +261,16 @@ fn build_via_builder() -> *mut FlatTree {
     let n_narrow = b.push_str("narrow");
     let n_checked = b.push_str("checked");
     let notes_int = b.push_string_seq(&[n_narrow, n_checked]);
+    let flags_int = b.push_int_seq(&[10, 20]);
+    let ops_int = b.push_bin_op_seq(&[ast::BinOp::Add as u8, ast::BinOp::Sub as u8]);
     let span_cast_int = flat_span(&mut b, 0, 51);
     let cast_int = b.push_expr_cast(expr::Cast {
         span: span_cast_int,
         e: case_expr,
         to: int_ty,
         notes: notes_int,
+        flags: flags_int,
+        ops: ops_int,
     });
 
     let span_bool_ty = flat_span(&mut b, 60, 64);
@@ -271,12 +279,16 @@ fn build_via_builder() -> *mut FlatTree {
         nullable: 0,
     });
     let notes_bool = b.push_string_seq(&[]);
+    let flags_bool = b.push_int_seq(&[]);
+    let ops_bool = b.push_bin_op_seq(&[]);
     let span_cast_bool = flat_span(&mut b, 55, 65);
     let cast_bool = b.push_expr_cast(expr::Cast {
         span: span_cast_bool,
         e: ident_expr,
         to: bool_ty,
         notes: notes_bool,
+        flags: flags_bool,
+        ops: ops_bool,
     });
 
     let exprs = b.push_expr_seq(&[cast_int, cast_bool]);

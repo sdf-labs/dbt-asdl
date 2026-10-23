@@ -242,6 +242,16 @@ impl Sexpr for ExprRef<'_> {
                 v.notes().write_sexpr(out);
                 out.push(')');
             }
+            if !v.flags().is_empty() {
+                out.push_str(" (flags ");
+                v.flags().write_sexpr(out);
+                out.push(')');
+            }
+            if !v.ops().is_empty() {
+                out.push_str(" (ops ");
+                v.ops().write_sexpr(out);
+                out.push(')');
+            }
             out.push(')');
             }
         }

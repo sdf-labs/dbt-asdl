@@ -898,6 +898,24 @@ impl<'a> ExprCastView<'a> {
             _ => unreachable!("view checked the variant at construction"),
         }
     }
+
+    /// The `flags` field.
+    pub fn flags(self) -> &'a [i32] {
+        match self.node {
+            ExprRef::Owned(owned::Expr::Cast(p)) => &p.flags,
+            ExprRef::Arena(arena::Expr::Cast(p)) => &p.flags,
+            _ => unreachable!("view checked the variant at construction"),
+        }
+    }
+
+    /// The `ops` field.
+    pub fn ops(self) -> &'a [BinOp] {
+        match self.node {
+            ExprRef::Owned(owned::Expr::Cast(p)) => &p.ops,
+            ExprRef::Arena(arena::Expr::Cast(p)) => &p.ops,
+            _ => unreachable!("view checked the variant at construction"),
+        }
+    }
 }
 /// A borrowed list of `expr` nodes, in either tree
 /// representation.

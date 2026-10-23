@@ -24,7 +24,7 @@ static_assert(sizeof(expr::Identifier) == 12 && alignof(expr::Identifier) == 4);
 static_assert(sizeof(expr::Literal) == 8 && alignof(expr::Literal) == 4);
 static_assert(sizeof(expr::BinaryOp) == 16 && alignof(expr::BinaryOp) == 4);
 static_assert(sizeof(expr::Case) == 20 && alignof(expr::Case) == 4);
-static_assert(sizeof(expr::Cast) == 20 && alignof(expr::Cast) == 4);
+static_assert(sizeof(expr::Cast) == 36 && alignof(expr::Cast) == 4);
 static_assert(sizeof(File) == 16 && alignof(File) == 4);
 
 std::optional<Node> child_node(Node node, std::string_view field_name) {
@@ -54,6 +54,8 @@ struct WalkStats {
     uint32_t when_then_count = 0;
     uint32_t note_count = 0;
     int64_t location_index_sum = 0;
+    int64_t cast_flag_sum = 0;
+    uint32_t cast_op_count = 0;
 };
 
 void walk_node_recursive(Node node, WalkStats& stats) {
@@ -92,6 +94,18 @@ void walk_node_recursive(Node node, WalkStats& stats) {
         if (auto notes_val = node.field("notes")) {
             if (auto notes = notes_val->as_seq()) {
                 stats.note_count += static_cast<uint32_t>(notes->len());
+            }
+        }
+        if (auto flags_val = node.field("flags")) {
+            if (auto flags = flags_val->as_seq()) {
+                for (Value item : *flags) {
+                    stats.cast_flag_sum += *item.as_int();
+                }
+            }
+        }
+        if (auto ops_val = node.field("ops")) {
+            if (auto ops = ops_val->as_seq()) {
+                stats.cast_op_count += static_cast<uint32_t>(ops->len());
             }
         }
     }
@@ -213,6 +227,10 @@ void walk_expr_typed(TreeView tree, ExprView e, WalkStats& stats) {
             walk_expr_typed(tree, *as_expr(tree, r->e), stats);
             walk_data_type_typed(tree, *as_data_type(tree, r->to), stats);
             stats.note_count += static_cast<uint32_t>(tree.seq("string", r->notes)->len());
+            for (Value item : *tree.seq("int", r->flags)) {
+                stats.cast_flag_sum += *item.as_int();
+            }
+            stats.cast_op_count += static_cast<uint32_t>(tree.seq("bin_op", r->ops)->len());
             break;
         }
     }
@@ -351,6 +369,25 @@ int32_t cpp_inspect_mini_sql_tree(
         return 16;
     }
     out->note_count = static_cast<uint32_t>(note_strs.size());
+
+    auto flags_seq = tree.seq("int", cast0_rec->flags);
+    if (!flags_seq || flags_seq->len() != 2 || flags_seq->get(0)->as_int() != 10 ||
+        flags_seq->get(1)->as_int() != 20) {
+        return 16;
+    }
+
+    auto ops_seq = tree.seq("bin_op", cast0_rec->ops);
+    if (!ops_seq || ops_seq->len() != 2) {
+        return 16;
+    }
+    auto op0 = ops_seq->get(0)->as_simple_sum();
+    auto op1 = ops_seq->get(1)->as_simple_sum();
+    if (!op0 || !op1 || bin_op_from_u8(op0->tag) != BinOp::Add ||
+        bin_op_from_u8(op1->tag) != BinOp::Sub ||
+        tree.simple_variant_name(op0->type_index, op0->tag) != "Add" ||
+        tree.simple_variant_name(op1->type_index, op1->tag) != "Sub") {
+        return 16;
+    }
 
     auto to0_opt = child_node(cast0, "to");
     if (!to0_opt) {
@@ -536,7 +573,11 @@ int32_t cpp_walk_and_summarize(
         typed_stats.cast_count != stats.cast_count ||
         typed_stats.when_then_count != stats.when_then_count ||
         typed_stats.note_count != stats.note_count ||
-        typed_stats.location_index_sum != stats.location_index_sum) {
+        typed_stats.location_index_sum != stats.location_index_sum ||
+        typed_stats.cast_flag_sum != stats.cast_flag_sum ||
+        typed_stats.cast_op_count != stats.cast_op_count ||
+        stats.cast_flag_sum != 30 ||
+        stats.cast_op_count != 2) {
         return 3;
     }
 

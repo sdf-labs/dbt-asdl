@@ -130,6 +130,8 @@ fn lower_expr(b: &mut TreeBuilder, r: ast::ExprRef) -> ExprRef {
                 e: lower_expr(b, v.e()),
                 to: lower_data_type(b, v.to()),
                 notes: { let items: Vec<FlatStr> = v.notes().iter().map(|s| b.push_str(s)).collect(); b.push_string_seq(&items) },
+                flags: b.push_int_seq(v.flags()),
+                ops: { let items: Vec<u8> = v.ops().iter().map(|x| *x as u8).collect(); b.push_bin_op_seq(&items) },
             };
             b.push_expr_cast(r)
         }

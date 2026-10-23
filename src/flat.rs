@@ -210,10 +210,7 @@ struct Layout {
 }
 
 impl Layout {
-    fn build(
-        mod_node: &Module,
-        infos: &mut HashMap<String, TypeInfo>,
-    ) -> Result<Self, CodegenError> {
+    fn build(mod_node: &Module, infos: &mut HashMap<String, TypeInfo>) -> Self {
         let mut types: Vec<String> = BUILTIN_TYPES.iter().map(|&s| s.to_string()).collect();
         types.extend(mod_node.dfns.iter().map(|d| d.name.clone()));
 
@@ -290,21 +287,13 @@ impl Layout {
             if !seq_used.contains(t) {
                 continue;
             }
-            let elem = if t == "identifier" || t == "string" {
-                "FlatStr".to_string()
-            } else {
-                let info = &infos[t];
-                if info.kind == InfoKind::SimpleSum {
-                    return Err(CodegenError(format!(
-                        "{t}*: sequences of simple sums are unsupported"
-                    )));
-                }
-                if !matches!(info.kind, InfoKind::Product | InfoKind::CompoundSum) {
-                    return Err(CodegenError(format!(
-                        "{t}*: sequences of scalars are unsupported"
-                    )));
-                }
-                format!("{}Ref", info.rust)
+            let elem = match t.as_str() {
+                "bool" | "byte" => "u8".to_string(),
+                "int" => "i32".to_string(),
+                "long" => "i64".to_string(),
+                "identifier" | "string" => "FlatStr".to_string(),
+                _ if infos[t].kind == InfoKind::SimpleSum => "u8".to_string(),
+                _ => format!("{}Ref", infos[t].rust),
             };
             let idx = sections.len();
             sections.push((format!("{t}_seq"), elem.clone()));
@@ -329,14 +318,14 @@ impl Layout {
             ctor_count += info.constructors.len();
         }
 
-        Ok(Self {
+        Self {
             types,
             type_index,
             sections,
             payload_section,
             seq_pools,
             seq_pool_section,
-        })
+        }
     }
 }
 
@@ -1152,25 +1141,29 @@ fn emit_stable(w: &mut Vec<String>, mod_node: &Module, infos: &HashMap<String, T
 fn convert_expr(f: &Field, infos: &HashMap<String, TypeInfo>, e: &str, b: &str) -> String {
     let t = f.ty.as_str();
     if f.seq {
-        if t == "string" {
-            return format!(
+        return match t {
+            "byte" | "int" | "long" => format!("{b}.push_{t}_seq({e})"),
+            "bool" => format!(
+                "{{ let items: Vec<u8> = {e}.iter().map(|x| *x as u8).collect(); {b}.push_bool_seq(&items) }}"
+            ),
+            "string" => format!(
                 "{{ let items: Vec<FlatStr> = {e}.iter().map(|s| {b}.push_str(s)).collect(); {b}.push_string_seq(&items) }}"
-            );
-        }
-        if t == "identifier" {
-            return format!(
+            ),
+            "identifier" => format!(
                 "{{ let items: Vec<FlatStr> = {e}.iter().map(|u| {b}.push_str(u.as_str())).collect(); {b}.push_identifier_seq(&items) }}"
-            );
-        }
-        let r = camel(t);
-        if infos[t].shared {
-            return format!(
-                "{{ let items: Vec<{r}Ref> = {e}.iter().map(|x| lower_{t}({b}, *x)).collect(); {b}.push_{t}_seq(&items) }}"
-            );
-        }
-        return format!(
-            "{{ let items: Vec<{r}Ref> = {e}.iter().map(|x| lower_{t}({b}, x)).collect(); {b}.push_{t}_seq(&items) }}"
-        );
+            ),
+            _ if infos[t].kind == InfoKind::SimpleSum => format!(
+                "{{ let items: Vec<u8> = {e}.iter().map(|x| *x as u8).collect(); {b}.push_{t}_seq(&items) }}"
+            ),
+            _ if infos[t].shared => format!(
+                "{{ let items: Vec<{}Ref> = {e}.iter().map(|x| lower_{t}({b}, *x)).collect(); {b}.push_{t}_seq(&items) }}",
+                camel(t)
+            ),
+            _ => format!(
+                "{{ let items: Vec<{}Ref> = {e}.iter().map(|x| lower_{t}({b}, x)).collect(); {b}.push_{t}_seq(&items) }}",
+                camel(t)
+            ),
+        };
     }
     if f.opt {
         return match t {
@@ -1201,7 +1194,7 @@ fn convert_expr(f: &Field, infos: &HashMap<String, TypeInfo>, e: &str, b: &str) 
 fn freeze_label(f: &Field, infos: &HashMap<String, TypeInfo>) -> String {
     if f.seq {
         let elem_field = Field::new(f.ty.clone(), None, Vec::new());
-        return format!("FlatSeq<{}>", record_ty(&elem_field, infos));
+        return format!("FlatSeq<{}>", freeze_label(&elem_field, infos));
     }
     if !BUILTIN_TYPES.contains(&f.ty.as_str()) && infos[&f.ty].kind == InfoKind::SimpleSum {
         let suffix = if f.opt { "?" } else { "" };
@@ -1450,22 +1443,6 @@ fn validate(mod_node: &Module, infos: &HashMap<String, TypeInfo>) -> Result<(), 
                     f.ty
                 )));
             }
-            if f.seq && matches!(f.ty.as_str(), "byte" | "int" | "long" | "bool") {
-                return Err(CodegenError(format!(
-                    "{}.{fname}: sequences of scalars are unsupported",
-                    dfn.name
-                )));
-            }
-            if f.seq
-                && infos
-                    .get(&f.ty)
-                    .is_some_and(|info| info.kind == InfoKind::SimpleSum)
-            {
-                return Err(CodegenError(format!(
-                    "{}.{fname}: sequences of simple sums are unsupported",
-                    dfn.name
-                )));
-            }
         }
     }
     Ok(())
@@ -1495,7 +1472,7 @@ pub(crate) fn generate_flat_from_module(
 
     validate(mod_node, &infos)?;
     compute_shared(&order, &mut infos);
-    let layout = Layout::build(mod_node, &mut infos)?;
+    let layout = Layout::build(mod_node, &mut infos);
 
     let mut flat = Vec::new();
     let mut conv = Vec::new();
@@ -1938,7 +1915,7 @@ pub(crate) fn generate_cpp_flat_from_module(
 
     validate(mod_node, &infos)?;
     compute_shared(&order, &mut infos);
-    let _layout = Layout::build(mod_node, &mut infos)?;
+    let _layout = Layout::build(mod_node, &mut infos);
     if !infos.contains_key("file") {
         return Err(CodegenError("flat layout requires a 'file' root type".to_string()));
     }
